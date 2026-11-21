@@ -27,7 +27,7 @@ One person: **you, the owner**. No teams, no sign-ups, no billing.
 v1 is done when this works end to end on a test repo:
 
 1. Log in. Add a project by GitHub repo (`owner/name`). Workforce clones it once.
-2. The team appears: lead "Ava" plus 2 workers (renamable). Press **Start team**.
+2. The team appears: lead **Simha** (Leo) plus 2 workers, **Mesha** (Aries) and **Kanya** (Virgo). Press **Start team**.
 3. Type to the lead: "Add a /health page and a footer". The lead creates 2 tasks and assigns them.
 4. Each worker gets its task, makes a branch, codes, and opens a PR titled `[WF-1] …`.
 5. The task moves to **Review**. A review comment on GitHub is sent to the worker, who fixes and pushes.
@@ -161,8 +161,8 @@ Nothing is written into your project's repo except what the agents commit throug
 
 ## 13. Login and safety
 
-- One password (stored hashed). A login cookie lasts 30 days. 5 wrong tries per minute → wait.
-- On the VPS: Caddy (HTTPS) in front, server on 127.0.0.1 only.
+- **On the VPS:** the same login as p5 (Caddy password, user `kanav`, same password). Server on 127.0.0.1 only, Caddy (HTTPS) in front.
+- **On a laptop (later):** Workforce's own password screen (stored hashed, cookie for 30 days, 5 wrong tries per minute → wait).
 - The live terminal is powerful (you can type into an agent's shell), so the login is mandatory, even on a laptop when it's reachable from the network.
 
 ## 14. Tech
@@ -178,7 +178,9 @@ Nothing is written into your project's repo except what the agents commit throug
 
 ## 15. Not in v1
 
-Codex · Docker or sandbox modes · Windows (later; Mac should work since it has tmux) · several users · plan export to the repo · installing agent "skills" by stack · agent memory across projects · auto-merge.
+Codex (Claude Code only for now) · Docker or sandbox modes (later) · Windows (later; Mac should work since it has tmux) · several users (only the owner) · plan export to the repo · installing agent "skills" by stack · agent memory across projects · **auto-merge** (the lead merging a PR by itself once review passes; maybe later, the owner merges for now).
+
+Rules can be changed later if there's a good reason.
 
 ## 16. Phases and checks
 
@@ -193,7 +195,19 @@ After each phase: I stop, show you, update `PROGRESS.md`, commit and push, and w
 
 ## 17. Defaults (change any of these)
 
-- Team: lead **Ava** + workers **Sam** and **Leo**. Model: Claude Code's default.
+- **Team names are the Indian zodiac signs (rashi)**, each with a personality from its sign. The personality only changes the agent's tone and focus, never the rules:
+
+| Name | Sign | Role | Personality |
+|---|---|---|---|
+| **Simha** | Leo ♌ | **Lead** (always) | confident, decisive, sees the big picture, plans and leads |
+| **Mesha** | Aries ♈ | Worker | bold, fast starter, good at building new features |
+| **Kanya** | Virgo ♍ | Worker | careful, detail-minded, good at fixes, tests and polish |
+| Makara | Capricorn ♑ | extra worker | disciplined, steady, good at long, structured jobs |
+| Tula | Libra ♎ | extra worker | balanced, good at UI and clean code |
+| Vrishchika | Scorpio ♏ | extra worker | deep, good at debugging and security |
+
+  New projects start with Simha + Mesha + Kanya. Extra workers come from the rest of the 12 signs.
+- Model: Claude Code's default.
 - Port 3010, address `p7.kanav.space`.
 - Task ID prefix from the project name (`WF-1`, `ATL-1`…).
 - First test repo: a new private `workforce-sandbox` repo on your GitHub, created by me in Phase 1.
