@@ -7,6 +7,7 @@ import type { Agent, Need, Task } from "../../../shared/types";
 import { ActQueue, type Act } from "../director";
 import { H, LANE, layoutFor, ROWS, W, type Cabin, type Layout, type Member, type Pt } from "./layout";
 import { lookOf, type Look } from "./looks";
+import { boardMarkup, paperFromShirt, PlanWall } from "./planWall";
 
 const SPEED = 270;
 const SCALE = 1.2; // people are a little bigger than in the preview
@@ -20,8 +21,6 @@ const clip = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…"
 const NS = "http://www.w3.org/2000/svg";
 
 const LIGHT: Record<Agent["state"], string> = { off: "#cfd2d8", ready: "#8fb0ff", working: "#2fae7a", "needs-you": "#e8a23a", blocked: "#e5534b" };
-const COLS = ["todo", "working", "review", "done"] as const;
-const colOf = (s: Task["status"]) => (s === "blocked" ? 1 : COLS.indexOf(s as (typeof COLS)[number]));
 
 export type Pick = { kind: "agent"; id: string } | { kind: "task"; id: string } | { kind: "ceo" } | null;
 
@@ -156,13 +155,7 @@ function glassArt(c: Cabin) {
 
 function planWallArt() {
   let s = R(810, 20, 430, 400, "#f5f3ef") + R(810, 20, 430, 76, "url(#gWall)") + R(810, 94, 430, 4, "#d8d1c6");
-  s += `<g filter="url(#fSh)"><rect x="842" y="60" width="366" height="236" rx="10" fill="#fff"/></g>`;
-  s += T(860, 82, "Plan", `font-family="${SANS}" font-size="13" font-weight="700" fill="#2b2f3a"`);
-  ["To do", "Working", "Review", "Done"].forEach((n, i) => {
-    const x = 852 + i * 88;
-    s += `<rect x="${x}" y="92" width="82" height="194" rx="7" fill="${i === 3 ? "#eef8f2" : "#f5f4f1"}"/>`;
-    s += T(x + 8, 108, n, `font-family="${SANS}" font-size="10.5" font-weight="600" fill="#7a7f8c"`);
-  });
+  s += boardMarkup();
   s += plant(1215, 404, 0.9);
   return s;
 }
@@ -271,17 +264,6 @@ interface Bubble {
   until: number;
 }
 
-interface Note {
-  g: SVGGElement;
-  col: number;
-  x: number;
-  y: number;
-  s: number;
-  order: number;
-  gone: boolean;
-  key: string;
-}
-
 // ------------------------------------------------------------------ the engine
 
 export class OfficeEngine {
@@ -290,7 +272,7 @@ export class OfficeEngine {
   private lFurn!: SVGGElement;
   private lActors!: SVGGElement;
   private lFx!: SVGGElement;
-  private notesLayer!: SVGGElement;
+  private wall!: PlanWall;
   private trayG!: SVGGElement;
   private actors: { g: SVGGElement; base: () => number }[] = [];
   private lastOrder = "";
@@ -303,7 +285,6 @@ export class OfficeEngine {
   private bubbles: Bubble[] = [];
   private flyers: { g: SVGGElement; from: Pt; to: () => Pt; t0: number; ms: number; res: () => void }[] = [];
   private confetti: ({ n: SVGElement; x: number; y: number; vx: number; vy: number; r: number; vr: number; life: number } | { ring: SVGCircleElement; t0: number })[] = [];
-  private notes = new Map<string, Note>();
   private tray = new Map<string, SVGGElement>(); // taskId → parcel on the gate
   private doneTasks = new Set<string>();
   private needWaiters = new Map<number, (() => void)[]>();
@@ -360,7 +341,6 @@ export class OfficeEngine {
     this.bubbles = [];
     this.flyers = [];
     this.confetti = [];
-    this.notes.clear();
     this.tray.clear();
     this.doneTasks.clear();
     this.needWaiters.clear();
@@ -391,8 +371,10 @@ export class OfficeEngine {
       layout.walls.top.map((x) => R(x - 6, 20, 12, 400, "#e2dcd3", 'rx="3"')).join("") +
       layout.walls.bot.map((x) => R(x - 6, 610, 12, 375, "#e2dcd3", 'rx="3"')).join("") +
       layout.cabins.map((c, i) => `<rect class="dim" id="dim-${i}" x="${c.x}" y="${c.row === "top" ? 20 : 610}" width="${c.w}" height="${c.row === "top" ? 400 : 375}" fill="#3b4050" opacity="0" pointer-events="none"/>`).join("");
-    this.notesLayer = grp(this.lFurn, "");
-    this.notesLayer.addEventListener("click", () => {});
+    this.wall = new PlanWall(grp(this.lFurn, ""), (t) => {
+      const owner = t.ownerId ? this.agents.get(t.ownerId) : undefined;
+      return owner ? paperFromShirt(lookOf(owner.sign).shirt) : "#fff1c2";
+    });
 
     for (const c of layout.cabins) this.addActor(glassArt(c), ROWS[c.row].glass);
     this.addActor(gateFront(), 362);
@@ -491,7 +473,7 @@ export class OfficeEngine {
     }
     const open = needs.filter((n) => n.status === "open").length;
     this.setScreen("ceo", open ? "needs you" : "inbox", open ? `${open} waiting` : "all clear", false);
-    this.syncNotes(tasks);
+    this.wall.show(tasks);
     this.syncTray(tasks);
   }
 
@@ -536,44 +518,6 @@ export class OfficeEngine {
     const s = this.layout.places[p.id]!.seat!;
     Object.assign(p, { x: s[0], y: s[1], pose: "sit", loc: p.id, moving: null, back: true, carry: null });
     this.freeCeoSlot(p);
-  }
-
-  private syncNotes(tasks: Task[]) {
-    const byCol: Task[][] = [[], [], [], []];
-    for (const t of tasks) byCol[colOf(t.status)]?.push(t);
-    const shown = new Set<string>();
-    byCol.forEach((list, col) => {
-      list.sort((a, b) => (col === 0 ? a.createdAt.localeCompare(b.createdAt) : a.updatedAt.localeCompare(b.updatedAt)));
-      const visible = col === 3 ? list.slice(-4) : list.slice(0, 4);
-      visible.forEach((t, order) => {
-        shown.add(t.id);
-        const owner = t.ownerId ? this.agents.get(t.ownerId) : undefined;
-        const color = t.status === "blocked" ? "#ffd4cf" : owner ? tint(lookOf(owner.sign).shirt) : "#fff1c2";
-        const key = `${t.title}|${color}|${t.status}`;
-        let n = this.notes.get(t.id);
-        if (!n) {
-          const g = grp(this.notesLayer, "", { "data-pick": `task:${t.id}`, class: "pickable note" });
-          n = { g, col, x: 858 + col * 88, y: col === 0 ? 160 : 116 + order * 44, s: 0, order, gone: false, key: "" };
-          this.notes.set(t.id, n);
-        }
-        if (n.key !== key) {
-          n.key = key;
-          n.g.innerHTML = `<g filter="url(#fSm)"><rect x="0" y="0" width="70" height="38" rx="5" fill="${color}"/></g>
-            ${t.status === "blocked" ? `<circle cx="62" cy="8" r="4" fill="#e5534b"/>` : ""}
-            ${T(7, 15, t.id, `font-family="${SANS}" font-size="10.5" font-weight="700" fill="#2b2f3a"`)}${T(7, 29, clip(t.title, 13), `font-family="${SANS}" font-size="8.5" fill="#4a4f5c"`)}`;
-        }
-        n.col = col;
-        n.order = order;
-        n.gone = false;
-      });
-      const more = list.length - 4;
-      let m = this.notesLayer.querySelector(`.more-${col}`) as SVGTextElement | null;
-      if (more > 0) {
-        if (!m) m = el("text", { class: `more-${col}`, x: 852 + col * 88 + 41, y: 281, "text-anchor": "middle", "font-family": SANS, "font-size": 9.5, "font-weight": 600, fill: "#7a7f8c" }, this.notesLayer);
-        m.textContent = col === 3 ? `+${more} earlier` : `+${more} more`;
-      } else m?.remove();
-    });
-    for (const [id, n] of this.notes) if (!shown.has(id)) n.gone = true;
   }
 
   private syncTray(tasks: Task[]) {
@@ -1075,22 +1019,6 @@ export class OfficeEngine {
     }
   }
 
-  private drawNotes(dt: number) {
-    const k = Math.min(1, dt * 5);
-    for (const [id, n] of this.notes) {
-      const tx = 858 + n.col * 88, ty = 116 + n.order * 42;
-      n.x = lerp(n.x, tx, k);
-      n.y = lerp(n.y, ty, k);
-      n.s = lerp(n.s, n.gone ? 0 : 1, k);
-      if (n.gone && n.s < 0.02) {
-        n.g.remove();
-        this.notes.delete(id);
-        continue;
-      }
-      n.g.setAttribute("transform", `translate(${n.x.toFixed(1)},${(n.y - Math.abs(tx - n.x) * 0.12).toFixed(1)}) rotate(${((tx - n.x) * 0.06).toFixed(1)},35,19) translate(35,19) scale(${n.s.toFixed(3)}) translate(-35,-19)`);
-    }
-  }
-
   private drawScreens(t: number) {
     for (const [key, s] of this.screens) {
       s.cur.setAttribute("opacity", (t * 2) % 1 < 0.5 && (s.typing || key === "ceo") ? "0.9" : "0");
@@ -1135,7 +1063,7 @@ export class OfficeEngine {
     this.drawBubbles();
     this.drawFlyers();
     this.drawConfetti(dt);
-    this.drawNotes(dt);
+    this.wall.step(dt);
     this.drawScreens(t);
     this.raf = requestAnimationFrame(this.frame);
   };
@@ -1276,13 +1204,6 @@ export class OfficeEngine {
 // ------------------------------------------------------------------ small helpers
 
 export const signSymbol = (sign: string) => signOf(sign)?.symbol ?? "";
-
-/** A light sticky-note colour from a person's shirt colour. */
-function tint(hex: string) {
-  const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  const m = (c: number) => Math.round(c + (255 - c) * 0.72);
-  return `rgb(${m(r)},${m(g)},${m(b)})`;
-}
 
 function pickReply(text: string) {
   if (/PR #\d+/.test(text) && /ready|review/i.test(text)) return "Nice, thanks";

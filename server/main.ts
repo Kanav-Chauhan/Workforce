@@ -1,4 +1,4 @@
-// Starts Workforce: the server on 127.0.0.1, the delivery loop and the agent watcher.
+// Starts Workforce: the server on 127.0.0.1, the courier sweep and the agent watcher.
 // Stopping the server leaves agents running in tmux; the next start picks them up again.
 
 import { createApp } from "./app.ts";
@@ -10,13 +10,13 @@ const app = createApp();
 const http = buildHttp(app);
 
 await http.listen({ host: "127.0.0.1", port: port() });
-app.delivery.start();
+app.courier.startSweep();
 app.runner.startWatching();
 console.log(`Workforce running on http://127.0.0.1:${port()}  (data: ${dbFile()}, agents: tmux -L ${SOCKET} ls)`);
 
 const quit = async () => {
   app.runner.stopWatching();
-  app.delivery.stop();
+  app.courier.stopSweep();
   await http.close();
   console.log("Workforce stopped. Agents keep running in tmux.");
   process.exit(0);

@@ -1,8 +1,8 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Project } from "../shared/types.ts";
 import { permissions, roleText } from "./agentFiles.ts";
 import { Db, now } from "./db.ts";
-import { Delivery } from "./delivery.ts";
+import { Courier } from "./courier.ts";
 import { Hooks } from "./hooks.ts";
 import { parseRepo, prefixFor, Projects } from "./projects.ts";
 import { describeTool, nextStatus } from "./status.ts";
@@ -13,14 +13,14 @@ function setup() {
   const db = new Db(":memory:");
   const store = new Store(db);
   const typed: { agentId: string; text: string }[] = [];
-  const delivery = new Delivery(store, { type: async (agentId, text) => (typed.push({ agentId, text }), true), enter: async () => true });
-  const work = new Work(store, delivery);
-  const hooks = new Hooks(store, delivery);
+  const courier = new Courier(store, { put: async (agentId, text) => (typed.push({ agentId, text }), true), submit: async () => true });
+  const work = new Work(store, courier);
+  const hooks = new Hooks(store, courier);
   const projects = new Projects(store);
   const project: Project = { id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now() };
   db.addProject(project);
   for (const sign of ["leo", "aries", "virgo"]) projects.addAgent("demo", sign);
-  return { db, store, delivery, work, hooks, projects, project, typed };
+  return { db, store, courier, work, hooks, projects, project, typed };
 }
 
 describe("projects", () => {
@@ -105,26 +105,26 @@ describe("work rules", () => {
   });
 });
 
-describe("delivery", () => {
+describe("courier", () => {
   it("hands queued messages over at Stop, on one line", () => {
     const t = setup();
     t.work.message("demo", "owner", "lead", "Plan a footer\nand a health page");
     t.work.message("demo", "demo.aries", "lead", "done?");
-    const text = t.delivery.takeForStop("demo.leo")!;
+    const text = t.courier.drainForStopHook("demo.leo")!;
     expect(text).not.toContain("\n");
     expect(text).toContain("Message from You: Plan a footer and a health page");
     expect(text).toContain("Message from Aries: done?");
     expect(t.db.pendingMessages("demo.leo")).toHaveLength(0);
-    expect(t.delivery.takeForStop("demo.leo")).toBeNull();
+    expect(t.courier.drainForStopHook("demo.leo")).toBeNull();
   });
 
   it("holds teammates' messages while paused, but not the owner's", () => {
     const t = setup();
-    t.delivery.paused = () => true;
+    t.courier.holdTeammates = () => true;
     t.work.message("demo", "demo.aries", "lead", "hi");
-    expect(t.delivery.takeForStop("demo.leo")).toBeNull();
+    expect(t.courier.drainForStopHook("demo.leo")).toBeNull();
     t.work.message("demo", "owner", "lead", "stop now");
-    expect(t.delivery.takeForStop("demo.leo")).toContain("stop now");
+    expect(t.courier.drainForStopHook("demo.leo")).toContain("stop now");
   });
 
   it("the Stop hook blocks with queued messages", async () => {
@@ -135,6 +135,37 @@ describe("delivery", () => {
     expect(r.body).toMatchObject({ decision: "block" });
     expect(t.db.agent("demo.leo")!.state).toBe("working");
     expect((await t.hooks.handle("bad-token", "Stop", {})).status).toBe(401);
+  });
+
+  it("types into an idle prompt and waits for the submit hook to confirm", async () => {
+    vi.useFakeTimers();
+    try {
+      const t = setup();
+      t.store.updateAgent("demo.leo", { state: "ready" });
+      t.courier.onHook("demo.leo", "SessionStart");
+      t.work.message("demo", "owner", "lead", "hello");
+      expect(t.typed).toHaveLength(0); // hooks have not settled yet
+      expect(t.courier.readyForTyping("demo.leo")).toBe(false);
+      await vi.advanceTimersByTimeAsync(1700);
+      expect(t.typed.map((x) => x.text)).toEqual(["[Workforce] Message from You: hello"]);
+      expect(t.courier.phaseOf("demo.leo")).toBe("confirming");
+      expect(t.db.pendingMessages("demo.leo")).toHaveLength(0);
+      t.courier.onHook("demo.leo", "UserPromptSubmit");
+      expect(t.courier.phaseOf("demo.leo")).toBe("busy");
+      t.courier.onHook("demo.leo", "SessionEnd");
+      expect(t.courier.phaseOf("demo.leo")).toBe("offline");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("never types while the agent is busy or offline", async () => {
+    const t = setup();
+    t.store.updateAgent("demo.leo", { state: "working" });
+    t.work.message("demo", "owner", "lead", "later");
+    await t.courier.attempt("demo.leo");
+    expect(t.typed).toHaveLength(0);
+    expect(t.courier.phaseOf("demo.leo")).toBe("offline");
   });
 });
 

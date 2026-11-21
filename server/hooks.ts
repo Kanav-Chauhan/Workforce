@@ -4,7 +4,7 @@
 
 import type { Agent, Need } from "../shared/types.ts";
 import { PERMISSION_WAIT_S } from "./agentFiles.ts";
-import type { Delivery } from "./delivery.ts";
+import type { Courier } from "./courier.ts";
 import { describeTool, nextStatus, turnAfter, type HookBody } from "./status.ts";
 import type { Store } from "./store.ts";
 
@@ -22,7 +22,7 @@ export class Hooks {
   /** Called when the owner answers a prompt that only exists on screen (no hook waiting). */
   pressKeys: (agentId: string, allow: boolean, kind: "permission" | "trust") => Promise<void> = async () => {};
 
-  constructor(private store: Store, private delivery: Delivery) {}
+  constructor(private store: Store, private courier: Courier) {}
 
   private get db() {
     return this.store.db;
@@ -31,7 +31,7 @@ export class Hooks {
   async handle(token: string, event: string, body: HookBody): Promise<HookReply> {
     const agent = this.db.agentByToken(token);
     if (!agent) return { status: 401 };
-    this.delivery.sawHook(agent.id, event);
+    this.courier.onHook(agent.id, event);
 
     // Anything the agent does after a prompt means that prompt was answered (in the terminal or here).
     if (event === "PostToolUse" || event === "UserPromptSubmit" || event === "Stop" || event === "SessionEnd") this.closeScreenPrompts(agent);
@@ -41,7 +41,7 @@ export class Hooks {
     if (turn !== undefined) this.inTurn.set(agent.id, turn);
 
     if (event === "Stop") {
-      const queued = this.delivery.takeForStop(agent.id);
+      const queued = this.courier.drainForStopHook(agent.id);
       if (queued) {
         // Keep going: Claude Code reads the reason and continues with it.
         this.inTurn.set(agent.id, true);

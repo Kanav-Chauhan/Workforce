@@ -5,7 +5,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import type { Agent } from "../shared/types.ts";
 import { transcriptFile, writeAgentFiles } from "./agentFiles.ts";
-import type { Delivery } from "./delivery.ts";
+import type { Courier } from "./courier.ts";
 import type { Hooks } from "./hooks.ts";
 import { agentDir, ensureDir, projectDir } from "./paths.ts";
 import type { Store } from "./store.ts";
@@ -23,11 +23,11 @@ const STALE_WORKING_MS = 20_000; // "working" with an idle screen this long = a 
 export const sessionName = (agent: Agent) => `wf-${agent.projectId}-${agent.sign}`;
 
 export class Runner {
-  private timer: NodeJS.Timeout | null = null;
+  private watchLoop: ReturnType<typeof setInterval> | undefined;
   private idleSeen = new Map<string, number>();
   private starting = new Set<string>();
 
-  constructor(private store: Store, private delivery: Delivery, private hooks: Hooks) {
+  constructor(private store: Store, private courier: Courier, private hooks: Hooks) {
     hooks.pressKeys = async (agentId, allow, kind) => {
       const a = this.store.db.agent(agentId);
       if (!a) return;
@@ -84,7 +84,7 @@ export class Runner {
         "--mcp-config", files.mcp, "--strict-mcp-config",
         ...(agent.model ? ["--model", agent.model] : []),
       ];
-      this.delivery.sessionGone(agent.id);
+      this.courier.markOffline(agent.id);
       this.hooks.forgetTurn(agent.id);
       await tmux.start(name, dir, args.map(shellQuote).join(" "));
       this.store.updateAgent(agent.id, { state: "ready", note: resume ? "Resuming…" : "Starting…" });
@@ -102,7 +102,7 @@ export class Runner {
     const agent = this.db.agent(agentId);
     if (!agent) return;
     await tmux.kill(sessionName(agent));
-    this.delivery.sessionGone(agent.id);
+    this.courier.markOffline(agent.id);
     this.hooks.forgetTurn(agent.id);
     this.store.updateAgent(agent.id, { state: "off", note: "Stopped" });
     this.store.activity(agent.projectId, agent.id, `${agent.name} stopped`);
@@ -132,11 +132,11 @@ export class Runner {
       for (const agent of this.db.agents()) await this.check(agent).catch(() => {});
     };
     void tick();
-    this.timer = setInterval(() => void tick(), 3000);
+    this.watchLoop = setInterval(() => void tick(), 3000);
   }
 
   stopWatching() {
-    if (this.timer) clearInterval(this.timer);
+    clearInterval(this.watchLoop);
   }
 
   private async check(agent: Agent) {
@@ -145,7 +145,7 @@ export class Runner {
     const alive = await tmux.exists(name);
     if (!alive) {
       if (agent.state !== "off") {
-        this.delivery.sessionGone(agent.id);
+        this.courier.markOffline(agent.id);
         this.store.updateAgent(agent.id, { state: "off", note: "Not running" });
       }
       return;
@@ -154,13 +154,13 @@ export class Runner {
     if (exit.dead) {
       const why = (await tmux.screen(name, 4)).split("\n").pop() || `exit code ${exit.code}`;
       await tmux.kill(name);
-      this.delivery.sessionGone(agent.id);
+      this.courier.markOffline(agent.id);
       this.store.updateAgent(agent.id, { state: "off", note: `Ended: ${why}`.slice(0, 200) });
       this.store.activity(agent.projectId, agent.id, `${agent.name}'s session ended (${why})`);
       return;
     }
     if (agent.state === "off") this.store.updateAgent(agent.id, { state: "ready", note: "Running (reattached)" });
-    if (this.delivery.quietFor(agent.id) < SCREEN_AFTER_MS || this.hooks.hasWaiting(agent.id)) return;
+    if (this.courier.silenceMs(agent.id) < SCREEN_AFTER_MS || this.hooks.hasWaiting(agent.id)) return;
 
     const screen = await tmux.screen(name, 15);
     if (!screen) return;
@@ -169,14 +169,14 @@ export class Runner {
     if (DIALOG.test(screen)) return this.hooks.screenPrompt(fresh, "permission", `${fresh.name}: answer the prompt in its terminal`, screen.slice(-1500));
     const busy = BUSY.test(screen);
     const atPrompt = PROMPT.test(screen) && !busy;
-    if (atPrompt) this.delivery.promptReady(agent.id);
+    if (atPrompt) this.courier.markPromptVisible(agent.id);
     if (busy && fresh.state === "ready") return this.store.updateAgent(agent.id, { state: "working", note: "Working" });
     if (fresh.state === "needs-you" && busy) return this.store.updateAgent(agent.id, { state: "working", note: "Continuing" });
     if (fresh.state === "needs-you" && atPrompt) return this.store.updateAgent(agent.id, { state: "ready", note: "Waiting for instructions" });
     if (fresh.state === "working" && atPrompt) {
       const n = (this.idleSeen.get(agent.id) ?? 0) + 1;
       this.idleSeen.set(agent.id, n);
-      if (n >= 2 && this.delivery.quietFor(agent.id) >= STALE_WORKING_MS) {
+      if (n >= 2 && this.courier.silenceMs(agent.id) >= STALE_WORKING_MS) {
         this.idleSeen.delete(agent.id);
         this.store.updateAgent(agent.id, { state: "ready", note: "Finished, ready for more" });
       }

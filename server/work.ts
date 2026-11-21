@@ -3,7 +3,7 @@
 
 import type { Agent, Need, Task, TaskStatus } from "../shared/types.ts";
 import { now } from "./db.ts";
-import type { Delivery } from "./delivery.ts";
+import type { Courier } from "./courier.ts";
 import type { Store } from "./store.ts";
 
 export interface NewTask {
@@ -18,7 +18,7 @@ export interface NewTask {
 export type ReportStatus = "working" | "blocked" | "review" | "done";
 
 export class Work {
-  constructor(private store: Store, private delivery: Delivery) {}
+  constructor(private store: Store, private courier: Courier) {}
 
   private get db() {
     return this.store.db;
@@ -59,7 +59,7 @@ export class Work {
     const msg = this.db.addMessage({ projectId, fromId, toId: to.id, text: clean, delivered: false, at: now() });
     this.store.emit({ type: "message", message: msg });
     if (fromId !== "workforce") this.store.activity(projectId, fromId === "owner" ? null : fromId, `${this.store.nameOf(fromId)} → ${to.name}: ${clean.slice(0, 100)}`);
-    this.delivery.nudge(to.id);
+    this.courier.queued(to.id);
     return msg;
   }
 
@@ -128,7 +128,7 @@ export class Work {
   }
 
   /** The agent's current task: the one it was given, else its oldest open one. */
-  currentTask(agentId: string): Task | undefined {
+  activeTaskOf(agentId: string): Task | undefined {
     const a = this.db.agent(agentId);
     if (!a) return undefined;
     const tasks = this.db.tasks(a.projectId).filter((t) => t.ownerId === agentId && t.status !== "done");
@@ -136,7 +136,7 @@ export class Work {
   }
 
   myTask(agentId: string): Task | null {
-    const t = this.currentTask(agentId);
+    const t = this.activeTaskOf(agentId);
     if (!t) return null;
     if (t.status === "todo") {
       t.status = "working";
@@ -150,7 +150,7 @@ export class Work {
   /** A developer reports progress on its current task. The lead is told about blocked/review/done. */
   report(agentId: string, status: ReportStatus, note = "", prNumber?: number): Task {
     const a = this.db.agent(agentId);
-    const t = this.currentTask(agentId);
+    const t = this.activeTaskOf(agentId);
     if (!a || !t) throw new Error("You have no task. Ask the lead for one.");
     this.setTaskStatus(t, status);
     t.note = note.slice(0, 500);

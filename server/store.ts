@@ -1,26 +1,28 @@
-// The database plus live updates: every change is saved, then pushed to listeners (the dashboard).
+// The database plus live updates: every change is saved, then pushed to subscribers (the dashboard).
 
 import type { Agent, LiveEvent, Need, NeedKind, Task } from "../shared/types.ts";
 import { Db, now } from "./db.ts";
 
-type Listener = (e: LiveEvent) => void;
+type Subscriber = (e: LiveEvent) => void;
 
 export class Store {
-  private listeners = new Set<Listener>();
+  private subscribers: Subscriber[] = [];
 
   constructor(readonly db: Db) {}
 
-  on(fn: Listener) {
-    this.listeners.add(fn);
-    return () => this.listeners.delete(fn);
+  on(fn: Subscriber) {
+    this.subscribers.push(fn);
+    return () => {
+      this.subscribers = this.subscribers.filter((f) => f !== fn);
+    };
   }
 
   emit(e: LiveEvent) {
-    for (const fn of this.listeners) {
+    for (const fn of this.subscribers) {
       try {
         fn(e);
       } catch {
-        /* one bad listener must not break the others */
+        /* one bad subscriber must not break the others */
       }
     }
   }
