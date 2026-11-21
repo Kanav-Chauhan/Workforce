@@ -2,7 +2,7 @@
 
 ## ▶ RESUME HERE
 
-**LIVE STATUS (2026-11-21):** SPEC approved 2026-11-21 (zodiac team: Simha/Leo lead, Mesha + Kanya workers; p7 uses the p5 Caddy login). Phase 1 (engine) DONE and tested live 2026-11-21, waiting for the owner's OK. Next: Phase 2 (dashboard; ask the owner about design first). Phase 3 needs a test repo agents can push to (gh token on the VPS can't create repos: owner must create it).
+**LIVE STATUS (2026-11-21, later):** Phase 1 approved by the owner. **Owner changed the dashboard: it is now an office like JSM HQ's (own cabin per agent, CEO cabin, agents walk to each other's cabin to talk and to the CEO to ask), polished graphics NOT pixel art, and ALL JSM HQ features (except sandboxes + Codex).** SPEC §5b + §15 updated. Earlier picks: calm light look, side-by-side layout. **Phase 2a running:** 2 builder agents make office previews in `previews/office-a` (soft 3D, three.js vendored) and `previews/office-b` (2D illustrated SVG) from `previews/BRIEF.md`. Served password-protected at https://p7.kanav.space/ (`~/deploy/workforce-preview`, 127.0.0.1:3093; Caddy p7 block, p5 basic_auth). Next: owner picks A or B → Phase 2b build. Phase 3 still needs a test repo from the owner.
 
 - Session: `701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`, transcript `~/.claude/projects/-home-north/701b5a1a-8ee7-4692-9a98-0c2c50ed80b8.jsonl`
 - Resume: `cd ~ && claude --resume 701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`
@@ -17,7 +17,8 @@
 | 0a | `STUDY.md`: how JSM HQ works, in plain words | done |
 | 0b | `SPEC.md`: what Workforce does (owner approves before any build) | done, approved |
 | 1 | Engine: projects, agents in tmux, rules files, MCP tools, hooks | done, owner reviewing |
-| 2 | Dashboard (Next.js + Tailwind; owner picks the design first, no pixel/game look) | todo |
+| 2a | Office look: 2 previews at p7, owner picks | in progress |
+| 2b | Dashboard: office (§5b) + all screens + JSM HQ extras | todo |
 | 3 | GitHub loop: PRs ↔ tasks, review comments to author, merged = done | todo |
 | 4 | Online at p7 behind a password | todo |
 
@@ -36,3 +37,4 @@
 - 2026-11-21: engine written (server/: db, store, team, status, tmux, agentFiles, delivery, work, hooks, runner, projects, mcp, usage, http, app, main) + engine.test.ts (18 pass). Weekly limit rule raised to 90% by owner.
 - 2026-11-21: live test on Kanav-Chauhan/Workforce (lead + 2 workers, dry run, nothing pushed): message → lead → 2 tasks via MCP → assigned → workers branched + committed locally → reported → lead told. Trust prompt from dashboard works.
 - Lessons: (1) the trust prompt highlights "No, exit": Allow = Down + Enter. (2) The owner's ~/.claude/settings.json allows everything, so agents start with `--setting-sources local` (only Workforce's settings count). (3) Claude Code auto-allows simple read-only commands (node --version). (4) Permission prompt → Needs you → Allow worked; deny rules (~/deploy, docker) proven with a rule-less run. (5) Lead sent instructions before assigning → added `note` to assign.
+- 2026-11-21: owner OK on Phase 1. Owner wants the JSM HQ office back (cabins, CEO cabin, walking to talk) with beautiful non-pixel graphics + all JSM HQ features. Read their office code (layout, bots, parcels, plan notes, effects) to learn the behaviours. SPEC updated. p7 preview server + Caddy block live (401 without login). 2 preview builders started.

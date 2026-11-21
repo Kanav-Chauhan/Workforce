@@ -37,7 +37,7 @@ v1 is done when this works end to end on a test repo:
 
 ## 5. Screens
 
-Design is chosen with you **before Phase 2** (no game look). Content:
+Design is chosen with you **before Phase 2**. **Changed 2026-11-21:** the main view is an **office** like JSM HQ's, with polished, non-pixel graphics (see §5b). Content:
 
 | Screen | What's on it |
 |---|---|
@@ -50,6 +50,17 @@ Design is chosen with you **before Phase 2** (no game look). Content:
 | **Usage** (top bar) | Weekly Claude usage % and a **Pause team** button. |
 
 Works on a phone: the Needs-you bar and team cards come first, the terminal opens full-screen.
+
+## 5b. The office (added 2026-11-21, owner request)
+
+The Project screen's main area is a live **office**, like JSM HQ's but with **proper, polished graphics (not pixel art)**:
+- **Cabins:** every agent is an employee with **their own cabin** (glass front, desk, screen). You can see what each one is doing from their cabin: typing at the desk, their screen shows the current action ("editing page.tsx"), a status light.
+- **CEO cabin:** you (the owner) have a cabin too. When an agent asks you something (`ask_owner`, permission prompt), it **walks to the CEO cabin** and waits there with a speech bubble until you answer.
+- **Talking:** when one agent messages another, it **walks to that agent's cabin** and they talk (speech bubbles), then it walks back.
+- **Everything JSM HQ's office shows:** the plan wall with sticky notes that move between To do / Working / Review / Done; PRs carried as parcels to a review gate; merge = celebration and the note moves to Done; idle agents get coffee in the lounge or wander; click an agent for its panel and terminal.
+- The rest of the dashboard (Needs you, activity feed, chat with the lead, drawers, settings) sits around the office: calm light look, side by side (owner choices 2026-11-21).
+- **All JSM HQ features**, except Docker sandboxes (the VPS can't run them) and Codex (Claude Code only).
+- Look is picked from previews first (Phase 2a), then built for real (Phase 2b).
 
 ## 6. How it runs
 
@@ -178,7 +189,9 @@ Nothing is written into your project's repo except what the agents commit throug
 
 ## 15. Not in v1
 
-Codex (Claude Code only for now) · Docker or sandbox modes (later) · Windows (later; Mac should work since it has tmux) · several users (only the owner) · plan export to the repo · installing agent "skills" by stack · agent memory across projects · **auto-merge** (the lead merging a PR by itself once review passes; maybe later, the owner merges for now).
+Codex (Claude Code only for now) · Docker or sandbox modes (later) · Windows (later; Mac should work since it has tmux) · several users (only the owner) · agent memory across projects · **auto-merge** (the lead merging a PR by itself once review passes; maybe later, the owner merges for now).
+
+**Moved into v1 on 2026-11-21** (owner wants all JSM HQ features): plan export to `docs/plan.md`, stack picker (official agent skills per tool), setup checklist, shell tab per agent, ports/env drawers, the office (§5b).
 
 Rules can be changed later if there's a good reason.
 
@@ -187,7 +200,8 @@ Rules can be changed later if there's a good reason.
 | Phase | Builds | Done when |
 |---|---|---|
 | **1. Engine** | server, SQLite, agents in tmux, role/settings/MCP files, hooks → status, message delivery, team tools | on a test repo: start 3 agents from a script, the lead creates and assigns 2 tasks, the workers receive them and reply |
-| **2. Dashboard** | design chosen with you first; all screens in §5; live terminal; Needs you + permission Allow/Deny | you run a small job entirely from the browser, including one permission prompt |
+| **2a. Office look** | 2 clickable office previews (3D soft vs 2D illustrated), password-protected at p7 | you pick one |
+| **2b. Dashboard** | the office (§5b) + all screens in §5; live terminal; Needs you + permission Allow/Deny; JSM HQ extras (§15) | you run a small job entirely from the browser, including one permission prompt |
 | **3. GitHub loop** | §10 | a task goes assigned → PR → review comment fixed → you merge → Done, without help |
 | **4. Online** | login, service, Caddy at p7, README, MIT licence (your name) | you open it on your phone and see live agents |
 
