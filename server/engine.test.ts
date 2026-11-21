@@ -80,6 +80,8 @@ describe("work rules", () => {
     expect(t.db.agent("demo.mesha")!.taskId).toBe("DM-1");
     expect(t.db.pendingMessages("demo.mesha")[0]!.text).toMatch(/assigned you DM-1/);
     expect(() => t.work.assign("demo", a.id, "lead", "owner")).toThrow(/lead plans/);
+    t.work.assign("demo", a.id, "mesha", "demo.simha", "dry run only");
+    expect(t.db.pendingMessages("demo.mesha").at(-1)!.text).toMatch(/assigned you DM-1.*Note from Simha: dry run only/);
   });
 
   it("report review tells the lead and links the PR", () => {

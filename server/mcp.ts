@@ -99,11 +99,15 @@ function server(store: Store, work: Work, me: Agent): McpServer {
     "assign",
     {
       description: "Lead only. Give a task to a developer. Workforce tells them to start (right away if they're free, otherwise when their current step ends).",
-      inputSchema: { taskId: z.string(), to: z.string().describe("The developer's name") },
+      inputSchema: {
+        taskId: z.string(),
+        to: z.string().describe("The developer's name"),
+        note: z.string().optional().describe("Extra instructions for this task. They arrive together with the assignment, so don't send a separate message."),
+      },
     },
-    safe(({ taskId, to }: { taskId: string; to: string }) => {
+    safe(({ taskId, to, note }: { taskId: string; to: string; note?: string }) => {
       leadOnly();
-      return taskView(work.assign(me.projectId, taskId, to, me.id));
+      return taskView(work.assign(me.projectId, taskId, to, me.id, note ?? ""));
     }),
   );
 

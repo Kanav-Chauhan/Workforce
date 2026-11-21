@@ -110,7 +110,7 @@ export class Work {
   }
 
   /** Gives a task to a developer and tells them to start. */
-  assign(projectId: string, taskId: string, agentRef: string, byId: string): Task {
+  assign(projectId: string, taskId: string, agentRef: string, byId: string, note = ""): Task {
     const t = this.mustTask(projectId, taskId);
     const a = this.mustAgent(projectId, agentRef);
     if (a.isLead) throw new Error("The lead plans; give tasks to developers.");
@@ -122,7 +122,8 @@ export class Work {
     this.store.saveTask(t);
     this.store.updateAgent(a.id, { taskId: t.id });
     this.store.activity(projectId, byId === "owner" ? null : byId, `${this.store.nameOf(byId)} gave ${t.id} (${t.title}) to ${a.name}`);
-    this.notify(a.id, `${this.store.nameOf(byId)} assigned you ${t.id}: ${t.title}. Call my_task for the details, then start.`);
+    const extra = note.trim() ? ` Note from ${this.store.nameOf(byId)}: ${note.trim().slice(0, 1500)}` : "";
+    this.notify(a.id, `${this.store.nameOf(byId)} assigned you ${t.id}: ${t.title}. Call my_task for the details, then start.${extra}`);
     return t;
   }
 

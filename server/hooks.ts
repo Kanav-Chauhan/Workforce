@@ -20,7 +20,7 @@ export class Hooks {
   /** Permission prompts waiting for the owner: need id → resolver. */
   private waiting = new Map<number, (d: Decision | null) => void>();
   /** Called when the owner answers a prompt that only exists on screen (no hook waiting). */
-  pressKeys: (agentId: string, allow: boolean) => Promise<void> = async () => {};
+  pressKeys: (agentId: string, allow: boolean, kind: "permission" | "trust") => Promise<void> = async () => {};
 
   constructor(private store: Store, private delivery: Delivery) {}
 
@@ -92,7 +92,7 @@ export class Hooks {
     this.store.closeNeed(needId, allow ? `Allowed${note ? `: ${note}` : ""}` : `Denied${note ? `: ${note}` : ""}`);
     const waiter = this.waiting.get(needId);
     if (waiter) waiter({ allow, note });
-    else if (need.agentId) await this.pressKeys(need.agentId, allow);
+    else if (need.agentId) await this.pressKeys(need.agentId, allow, need.kind);
     if (need.agentId) this.store.activity(need.projectId, need.agentId, `You ${allow ? "allowed" : "denied"}: ${need.title}`);
     return this.db.need(needId)!;
   }

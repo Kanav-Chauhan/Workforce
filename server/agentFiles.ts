@@ -34,6 +34,7 @@ export function roleText(agent: Agent, project: Project, team: Agent[]): string 
     "Create each task with `create_task`: a clear title, the details, the exact files or folders it may edit, a 'done when' the owner can check, and which tasks it depends on.",
     "Two tasks that can run at the same time must never share a file.",
     "Give tasks with `assign` only to developers who are free (check `team`). A developer whose PR is in review can take the next task.",
+    "Put any extra instructions for a task in `assign`'s note. Don't send them as a separate message first: the developer would start before the task is theirs.",
     "When a task goes to review, tell the owner which PRs are ready and the order to merge them in. You never merge.",
     "If the request is unclear or a decision belongs to the owner, ask with `ask_owner` before planning.",
   ];

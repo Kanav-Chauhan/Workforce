@@ -28,11 +28,15 @@ export class Runner {
   private starting = new Set<string>();
 
   constructor(private store: Store, private delivery: Delivery, private hooks: Hooks) {
-    hooks.pressKeys = async (agentId, allow) => {
+    hooks.pressKeys = async (agentId, allow, kind) => {
       const a = this.store.db.agent(agentId);
       if (!a) return;
-      // Claude Code's prompts select "Yes" first: Enter accepts, Escape declines.
-      await tmux.key(sessionName(a), allow ? "Enter" : "Escape");
+      const name = sessionName(a);
+      if (!allow) return void (await tmux.key(name, "Escape"));
+      // The trust prompt highlights "No, exit" first: move down to "Yes, I trust this folder".
+      // Permission prompts highlight "Yes" first.
+      if (kind === "trust") await tmux.key(name, "Down");
+      await tmux.key(name, "Enter");
     };
   }
 
@@ -73,6 +77,9 @@ export class Runner {
         "claude",
         ...(resume ? ["--resume", sessionId] : ["--session-id", sessionId]),
         "--append-system-prompt-file", files.role,
+        // Only Workforce's settings count: the machine owner's own settings (which may allow everything)
+        // and settings a repo commits are ignored, so the permission rules here are the real ones.
+        "--setting-sources", "local",
         "--settings", files.settings,
         "--mcp-config", files.mcp, "--strict-mcp-config",
         ...(agent.model ? ["--model", agent.model] : []),

@@ -90,10 +90,10 @@ export function buildHttp(app: App) {
     work.createTask(req.params.id, req.body, "owner"),
   );
 
-  f.post<{ Params: { id: string }; Body: { to: string } }>("/api/tasks/:id/assign", async (req, reply) => {
+  f.post<{ Params: { id: string }; Body: { to: string; note?: string } }>("/api/tasks/:id/assign", async (req, reply) => {
     const t = db.task(req.params.id);
     if (!t) return reply.code(404).send({ error: "No such task" });
-    return work.assign(t.projectId, t.id, String(req.body?.to ?? ""), "owner");
+    return work.assign(t.projectId, t.id, String(req.body?.to ?? ""), "owner", String(req.body?.note ?? ""));
   });
 
   f.post<{ Params: { id: string }; Body: { allow: boolean; note?: string } }>("/api/needs/:id/decide", async (req) =>
