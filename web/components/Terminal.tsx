@@ -321,7 +321,7 @@ export function TerminalCard({ agent, wide, onWide }: { agent: Agent; wide?: boo
               </button>
             ))}
             <span className="ml-auto hidden text-[11px] text-muted sm:inline">
-              {kind === "agent" ? "Scroll up for history (Esc returns) · Shift+drag selects" : "Shift+Enter: new line · Ctrl+C copies a selection"}
+              {kind === "agent" ? "Mouse wheel scrolls back · Shift+drag selects text" : "Shift+Enter: new line · Ctrl+C copies a selection"}
             </span>
           </div>
         </>

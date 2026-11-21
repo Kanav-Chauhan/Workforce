@@ -19,7 +19,7 @@ One person: **you, the owner**. No teams, no sign-ups, no billing.
 | **Project** | One GitHub repo Workforce manages. Workforce can hold several. |
 | **Agent** | One Claude Code session with a name, a role and its own folder. One **lead** per project, 1–3 **workers**. |
 | **Task** | One small job: one task = one branch = one PR. Has an ID like `WF-12`. |
-| **Phase** | Optional label on tasks ("Phase 1"), to group them. No separate boards. |
+| **Board** | A named plan board per project ("v1", "Polish"). Every task is on one board (the task's `phase` field holds the board name; empty = the first board). Changed 2026-11-21 (owner): several boards per project. |
 | **Needs you** | Anything waiting on you: a question, a permission prompt, a blocked task, a PR ready to merge. |
 
 ## 4. What you can do (the core flow)
@@ -46,7 +46,9 @@ Design is chosen with you **before Phase 2**. **Changed 2026-11-21:** the main v
 | **Project** (main) | **Needs you** bar at the top · **Team**: a card per agent (name, role, status, current task, last action) · **Board**: To do / Working / Review / Done · **Activity** feed · **Message the lead** box. |
 | **Agent panel** (click a card) | Live **terminal** (watch and type) · its **task** · its **messages** · Start / Stop / Restart. |
 | **Task panel** (click a task) | Description, files it may touch, done-when, owner, PR link and review state, history. |
-| **Settings** | Per project: team (add/remove agents, name, role text, model) and permission style (§8). Global: password, usage limit (default 90%). |
+| **Settings** | Tabs: **Team** (start/stop, add a zodiac worker, add a custom agent with your own name, role, colour, model and optional existing folder, remove an agent: keep or delete its folder) · **Stack** (§7b) · **MCP servers** (extra servers per agent; header values come from an env variable, never stored) · **Environment** (per-agent variables: names shown as set/not set, values never shown again) · **General** (office name, permission style, plan export, usage limit) · **Setup** (checklist) · **Debug** (version, uptime, tmux sessions, last hook per agent). |
+| **Welcome** (first run, no projects) | Name the office → add the first project (`owner/name`, lead + 1–3 workers, Careful/Trusted) → setup checklist (git, gh + login, tmux, claude, node, disk; each OK or its fix with a **Run** button that runs only that fix from a fixed list in a terminal). |
+| **Ports** (top bar) | Ports the agents' programs listen on (agent's tmux pane + Shell tab process trees matched against `ss -ltnp`), with Open links on a laptop; on the server a note that ports aren't exposed. |
 | **Usage** (top bar) | Weekly Claude usage % and a **Pause team** button. |
 
 Works on a phone: the Needs-you bar and team cards come first, the terminal opens full-screen.
@@ -88,6 +90,10 @@ The Project screen's main area is a live **office**, like JSM HQ's but with **pr
 - `--settings settings.json`: the hooks and permission rules
 - `--mcp-config mcp.json`: the team tools (with that agent's token)
 - `--session-id <id>`: so Workforce can resume the same conversation after a crash or reboot
+
+**Extras at start-up (Phase 2b).** The agent's env file (`~/.workforce/env/<agent>.env`, 600) is sourced by the shell before `exec claude`, so values never appear in a command line; the role file lists the variable names only. Extra MCP servers go into its `mcp.json`. Stack skills (§7b) load with `--plugin-dir`.
+
+**§7b Stack picker.** Per project, tick tools from a short curated list (`shared/stacks.ts`). For tools whose makers publish official Claude Code skills on GitHub (Vercel, Prisma, Clerk, Stripe, Supabase, Docker), Workforce shallow-clones that repo once (`~/.workforce/cache/skills`) and copies the chosen skills into each agent's folder at `.claude/workforce-stack/` (a local plugin, listed in `.git/info/exclude`). Plain `.claude/skills` in the repo would **not** load because agents start with `--setting-sources local` (checked 2026-11-21). The tools' docs domains are added as `WebFetch(domain:…)` allow rules. Tools with no official skill only add docs domains.
 
 **Session.** It runs in tmux (`wf-<project>-<agent>`), so it survives the browser and the server restarting. Workforce re-attaches on start-up.
 
@@ -166,7 +172,11 @@ Folder layout:
   projects/<project>/
     <agent>/            the agent's clone
     .agents/<agent>/    role.md, settings.json, mcp.json (never inside the clone)
+  env/<agent>.env       per-agent environment (600), never in a repo
+  cache/skills/         shallow clones of vendors' official skill repos
 ```
+
+Plan export (per project, off by default): `docs/plan.md` in the **lead's** folder, rewritten after each task change, never committed by Workforce.
 
 Nothing is written into your project's repo except what the agents commit through PRs.
 
@@ -191,7 +201,7 @@ Nothing is written into your project's repo except what the agents commit throug
 
 Codex (Claude Code only for now) · Docker or sandbox modes (later) · Windows (later; Mac should work since it has tmux) · several users (only the owner) · agent memory across projects · **auto-merge** (the lead merging a PR by itself once review passes; maybe later, the owner merges for now).
 
-**Moved into v1 on 2026-11-21** (owner wants all JSM HQ features): plan export to `docs/plan.md`, stack picker (official agent skills per tool), setup checklist, shell tab per agent, ports/env drawers, the office (§5b).
+**Built in Phase 2b (2026-11-21):** welcome + setup checklist, stack picker, MCP servers and env per agent, ports drawer, custom agents, remove agent, office name sign, several boards, plan export, reconnect banner + Debug panel. **Moved into v1 on 2026-11-21** (owner wants all JSM HQ features): plan export to `docs/plan.md`, stack picker (official agent skills per tool), setup checklist, shell tab per agent, ports/env drawers, the office (§5b).
 
 Rules can be changed later if there's a good reason.
 
