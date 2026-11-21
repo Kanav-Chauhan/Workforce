@@ -71,7 +71,7 @@ export function Settings({ project, agents, usage, onClose }: { project: Project
             <option value="">Pick a sign…</option>
             {free.map((s) => (
               <option key={s.sign} value={s.sign}>
-                {s.name} {s.symbol} ({s.western}) · {s.personality.split(".")[0]}
+                {s.name} {s.symbol} · {s.personality.split(".")[0]}
               </option>
             ))}
           </select>

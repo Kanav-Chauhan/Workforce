@@ -2,7 +2,7 @@
 
 ## ▶ RESUME HERE
 
-**LIVE STATUS (2026-11-21, evening):** Owner picked office **B (2D illustrated SVG)**; 3D preview A stopped and deleted. **Phase 2b part 1 building** (builder agent): /live WebSocket, dashboard in web/ (Next.js 16 static export + Tailwind 4) served by the engine, the office from office-b driven by real events (walk to cabins on messages, to the CEO cabin on needs, parcels, notes, confetti), Needs you, panels, terminal view, `?demo=1` scripted story. Part 2 later: setup checklist, stack picker, plan export, shell tab, ports/env. Preview still at https://p7.kanav.space/office-b/. Phase 3 still needs a test repo from the owner.
+**LIVE STATUS (2026-11-21, night):** Owner picked office **B (2D illustrated SVG)**. **Phase 2b part 1 DONE** (waiting for owner OK): `/live` WebSocket + dashboard served by the engine on one port; `web/` = Next.js 16 static export + Tailwind 4: Projects list (+ Add project), the office ported from office-b and driven by real events (Director → per-agent act queues: visits with bubbles, envelopes, walk to the CEO cabin on needs, PR parcels to the gate, confetti on done, coffee/wander when idle, dim cabin when off; 1 lead + 1–5 workers layout), Needs you strip (Allow/Deny + note, answers), right column (Activity / Board / Message the lead), agent panel (status, task, actions, messages, live screen polled 1 s, type + keys, Start/Stop/Restart), task panel (details, files, PR link, assign, history), team settings (start/stop, add worker by sign, usage limit). `/?demo=1` (`&workers=1..5`) plays the preview story as fake live events through the same pipeline. **Team renamed to English zodiac names** (Leo lead, Aries, Virgo, …) per owner. Run: `npm run build:web && npm run server` → http://127.0.0.1:3010 (demo: /?demo=1). Next: part 2 (setup checklist, stack picker, plan export, shell tab, ports/env drawers). Phase 3 still needs a test repo from the owner.
 
 - Session: `701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`, transcript `~/.claude/projects/-home-north/701b5a1a-8ee7-4692-9a98-0c2c50ed80b8.jsonl`
 - Resume: `cd ~ && claude --resume 701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`
@@ -18,7 +18,7 @@
 | 0b | `SPEC.md`: what Workforce does (owner approves before any build) | done, approved |
 | 1 | Engine: projects, agents in tmux, rules files, MCP tools, hooks | done, owner reviewing |
 | 2a | Office look: 2 previews at p7, owner picks | done: B (2D) |
-| 2b | Dashboard: office (§5b) + all screens + JSM HQ extras | part 1 building |
+| 2b | Dashboard: office (§5b) + all screens + JSM HQ extras | part 1 done (owner check), part 2 todo |
 | 3 | GitHub loop: PRs ↔ tasks, review comments to author, merged = done | todo |
 | 4 | Online at p7 behind a password | todo |
 
@@ -39,3 +39,4 @@
 - Lessons: (1) the trust prompt highlights "No, exit": Allow = Down + Enter. (2) The owner's ~/.claude/settings.json allows everything, so agents start with `--setting-sources local` (only Workforce's settings count). (3) Claude Code auto-allows simple read-only commands (node --version). (4) Permission prompt → Needs you → Allow worked; deny rules (~/deploy, docker) proven with a rule-less run. (5) Lead sent instructions before assigning → added `note` to assign.
 - 2026-11-21: owner OK on Phase 1. Owner wants the JSM HQ office back (cabins, CEO cabin, walking to talk) with beautiful non-pixel graphics + all JSM HQ features. Read their office code (layout, bots, parcels, plan notes, effects) to learn the behaviours. SPEC updated. p7 preview server + Caddy block live (401 without login). 2 preview builders started.
 - 2026-11-21: owner picked B (2D). A deleted. Phase 2b part 1 builder started.
+- 2026-11-21: Phase 2b part 1 built: /live (state + every store event, same-origin only), /api/agents/:id/type, static web/out served by the engine; web/ dashboard + office from preview B driven by live events; Director + ActQueue (pure, 14 tests) + /live tests; 35 tests pass, typecheck clean. Checked in headless Chromium at 1440×900 and 390×844 (web/shots/), no console errors. Owner change: team uses English zodiac names (Leo/Aries/Virgo…), SPEC §17 updated. Live check (scratch WORKFORCE_HOME, port 3012, only Leo started, then stopped): added Kanav-Chauhan/Workforce from the UI, Start from the agent panel, trust prompt allowed from the Needs-you strip, owner message → `node -e` permission prompt → Leo walked to the CEO cabin with a bubble → Allow in the browser → Leo went back. Fixed on the way: office crashed when /live's state arrived after the office mounted; activity order on load.

@@ -8,7 +8,7 @@ function setup() {
   const db = new Db(":memory:");
   const app = createApp(db);
   db.addProject({ id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now() });
-  for (const sign of ["simha", "mesha"]) app.projects.addAgent("demo", sign);
+  for (const sign of ["leo", "aries"]) app.projects.addAgent("demo", sign);
   const http = buildHttp(app);
   return { app, http };
 }
@@ -35,7 +35,7 @@ describe("/live", () => {
     const ws = await http.injectWS("/live", {}, { onInit: (w) => (next = frames(w)) });
     const [init] = await next(1);
     expect(init?.type).toBe("init");
-    if (init?.type === "init") expect(init.state.agents.map((a) => a.name)).toEqual(["Simha", "Mesha"]);
+    if (init?.type === "init") expect(init.state.agents.map((a) => a.name)).toEqual(["Leo", "Aries"]);
     app.work.message("demo", "owner", "lead", "Add a footer");
     const got = await next(3); // message + activity
     expect(got.slice(1).map((f) => f.type).sort()).toEqual(["activity", "message"]);
@@ -54,7 +54,7 @@ describe("/live", () => {
 
   it("types into an agent only when it runs", async () => {
     const { http } = setup();
-    const r = await http.inject({ method: "POST", url: "/api/agents/demo.mesha/type", payload: { text: "hi", enter: true } });
+    const r = await http.inject({ method: "POST", url: "/api/agents/demo.aries/type", payload: { text: "hi", enter: true } });
     expect(r.statusCode).toBe(409);
     const bad = await http.inject({ method: "POST", url: "/api/agents/nope/type", payload: { text: "hi" } });
     expect(bad.statusCode).toBe(404);

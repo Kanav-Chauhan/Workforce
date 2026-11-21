@@ -50,7 +50,7 @@ export class Projects {
     return project;
   }
 
-  /** Adds a team member by zodiac sign (the lead is always Simha). */
+  /** Adds a team member by zodiac sign (the lead is always Leo). */
   addAgent(projectId: string, sign?: string): Agent {
     const taken = new Set(this.db.agents(projectId).map((a) => a.sign));
     const pick = sign ?? SIGNS.find((s) => !taken.has(s.sign))?.sign;

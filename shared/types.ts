@@ -17,8 +17,8 @@ export interface Project {
 export interface Agent {
   id: string; // unique across projects: "<project>.<sign>"
   projectId: string;
-  sign: string; // "simha"
-  name: string; // "Simha"
+  sign: string; // "leo"
+  name: string; // "Leo"
   isLead: boolean;
   extraRole: string; // owner's own text, added to the role
   model: string; // "" = Claude Code's default

@@ -19,7 +19,8 @@ export class DemoStory {
   private timers = new Set<ReturnType<typeof setTimeout>>();
   private project: Project = { id: P, repo: "you/demo-repo", name: "demo-repo", prefix: "WF", defaultBranch: "main", permissionStyle: "careful", createdAt: iso() };
 
-  constructor(private emit: Emit) {}
+  /** workers: 1–3 (the story uses Aries and Virgo; extras just live in the office). */
+  constructor(private emit: Emit, private workers = 2) {}
 
   start() {
     void this.loop("Add a /health page and a footer");
@@ -41,7 +42,9 @@ export class DemoStory {
     const mk = (sign: string, name: string, isLead: boolean): Agent => ({
       id: `${P}.${sign}`, projectId: P, sign, name, isLead, extraRole: "", model: "", sessionId: "", state: "ready", note: "Waiting for instructions", taskId: null, stateSince: iso(),
     });
-    for (const a of [mk("simha", "Simha", true), mk("mesha", "Mesha", false), mk("kanya", "Kanya", false)]) this.agents.set(a.id, a);
+    const team = [mk("leo", "Leo", true), mk("aries", "Aries", false), mk("virgo", "Virgo", false), mk("capricorn", "Capricorn", false), mk("libra", "Libra", false), mk("scorpio", "Scorpio", false)];
+    for (const a of team.slice(0, 1 + Math.max(2, Math.min(5, this.workers)))) this.agents.set(a.id, a);
+    if (this.workers === 1) this.agents.delete(this.id("virgo"));
     return {
       projects: [this.project],
       agents: [...this.agents.values()],
@@ -154,92 +157,92 @@ export class DemoStory {
 
   private async story(request: string) {
     await this.sleep(1500);
-    this.msg("owner", "simha", request);
+    this.msg("owner", "leo", request);
     await this.sleep(1200);
-    this.agent("simha", { state: "working", note: "Planning the owner's request" });
+    this.agent("leo", { state: "working", note: "Planning the owner's request" });
     await this.sleep(2500);
     this.task("WF-1", { title: "/health page", details: "Add a page at /health that returns ok and the app version.", files: ["app/health/page.tsx"], doneWhen: "GET /health shows ok", phase: "Phase 1" });
-    this.act("simha", "Simha created WF-1 /health page");
+    this.act("leo", "Leo created WF-1 /health page");
     await this.sleep(700);
     this.task("WF-2", { title: "Site footer", details: "A footer with the year and a link to the repo.", files: ["components/Footer.tsx", "app/layout.tsx"], doneWhen: "Footer shows on every page", phase: "Phase 1" });
-    this.act("simha", "Simha created WF-2 Site footer");
+    this.act("leo", "Leo created WF-2 Site footer");
     await this.sleep(1200);
 
-    this.task("WF-1", { ownerId: this.id("mesha") });
-    this.msg("workforce", "mesha", "You have a new task: WF-1. Call my_task to start.");
-    this.msg("simha", "mesha", "WF-1 is yours: the /health page");
-    this.act("simha", "Simha assigned WF-1 to Mesha");
+    this.task("WF-1", { ownerId: this.id("aries") });
+    this.msg("workforce", "aries", "You have a new task: WF-1. Call my_task to start.");
+    this.msg("leo", "aries", "WF-1 is yours: the /health page");
+    this.act("leo", "Leo assigned WF-1 to Aries");
     await this.sleep(5500);
-    this.agent("mesha", { state: "working", note: "git checkout -b wf-1-health", taskId: "WF-1" });
+    this.agent("aries", { state: "working", note: "git checkout -b wf-1-health", taskId: "WF-1" });
     this.task("WF-1", { status: "working" });
-    this.act("mesha", "Mesha started WF-1");
-    this.task("WF-2", { ownerId: this.id("kanya") });
-    this.msg("workforce", "kanya", "You have a new task: WF-2. Call my_task to start.");
-    this.msg("simha", "kanya", "WF-2 is yours: the site footer");
-    this.act("simha", "Simha assigned WF-2 to Kanya");
+    this.act("aries", "Aries started WF-1");
+    this.task("WF-2", { ownerId: this.id("virgo") });
+    this.msg("workforce", "virgo", "You have a new task: WF-2. Call my_task to start.");
+    this.msg("leo", "virgo", "WF-2 is yours: the site footer");
+    this.act("leo", "Leo assigned WF-2 to Virgo");
     await this.sleep(2500);
-    this.agent("mesha", { note: "Editing app/health/page.tsx" });
+    this.agent("aries", { note: "Editing app/health/page.tsx" });
     await this.sleep(3500);
-    this.agent("kanya", { state: "working", note: "Editing components/Footer.tsx", taskId: "WF-2" });
+    this.agent("virgo", { state: "working", note: "Editing components/Footer.tsx", taskId: "WF-2" });
     this.task("WF-2", { status: "working" });
-    this.act("kanya", "Kanya started WF-2");
-    this.agent("simha", { state: "ready", note: "Watching the board" });
+    this.act("virgo", "Virgo started WF-2");
+    this.agent("leo", { state: "ready", note: "Watching the board" });
     await this.sleep(3000);
 
-    // Mesha needs permission.
-    this.agent("mesha", { state: "needs-you", note: "Asking: Running npm install zod" });
-    this.act("mesha", "Mesha asks to: Running npm install zod");
-    const perm = this.need("mesha", "permission", "Mesha: Running npm install zod", '{\n  "tool": "Bash",\n  "input": { "command": "npm install zod" }\n}');
+    // Aries needs permission.
+    this.agent("aries", { state: "needs-you", note: "Asking: Running npm install zod" });
+    this.act("aries", "Aries asks to: Running npm install zod");
+    const perm = this.need("aries", "permission", "Aries: Running npm install zod", '{\n  "tool": "Bash",\n  "input": { "command": "npm install zod" }\n}');
     const permId = this.seq - 1;
     const d = await this.orAuto(perm, 14000, () => this.decide(permId, true, "(demo: allowed by itself)"));
-    this.agent("mesha", { state: "working", note: d.allow ? "Running npm install zod" : "Carrying on without zod" });
+    this.agent("aries", { state: "working", note: d.allow ? "Running npm install zod" : "Carrying on without zod" });
     await this.sleep(1500);
 
-    // Kanya ships PR #4 and asks a question on the way.
-    this.agent("kanya", { note: "Running npm test" });
+    // Virgo ships PR #4 and asks a question on the way.
+    this.agent("virgo", { note: "Running npm test" });
     await this.sleep(2000);
-    this.agent("kanya", { state: "needs-you", note: "Asking the owner" });
-    this.act("kanya", "Kanya asks you: Show the year in the footer as 2026 or a live year?");
-    const q = this.need("kanya", "question", "Show the year in the footer as 2026 or a live year?");
+    this.agent("virgo", { state: "needs-you", note: "Asking the owner" });
+    this.act("virgo", "Virgo asks you: Show the year in the footer as 2026 or a live year?");
+    const q = this.need("virgo", "question", "Show the year in the footer as 2026 or a live year?");
     const qId = this.seq - 1;
     const ans = await this.orAuto(q, 16000, () => this.answer(qId, "A live year, please (demo answer)"));
-    this.msg("workforce", "kanya", `The owner answered: ${ans.answer}`);
-    this.agent("kanya", { state: "working", note: "gh pr create" });
-    this.agent("mesha", { note: "Editing app/health/page.tsx" });
+    this.msg("workforce", "virgo", `The owner answered: ${ans.answer}`);
+    this.agent("virgo", { state: "working", note: "gh pr create" });
+    this.agent("aries", { note: "Editing app/health/page.tsx" });
     await this.sleep(2500);
     this.task("WF-2", { status: "review", prNumber: 4 });
-    this.act("kanya", "Kanya: WF-2 in review (PR #4)");
-    this.agent("kanya", { state: "ready", note: "PR #4 in review", taskId: "WF-2" });
+    this.act("virgo", "Virgo: WF-2 in review (PR #4)");
+    this.agent("virgo", { state: "ready", note: "PR #4 in review", taskId: "WF-2" });
     await this.sleep(4500);
-    this.msg("kanya", "simha", "PR #4 is ready for review");
+    this.msg("virgo", "leo", "PR #4 is ready for review");
     await this.sleep(6000);
-    this.msg("simha", "kanya", "Nice. The owner will merge it.");
+    this.msg("leo", "virgo", "Nice. The owner will merge it.");
     await this.sleep(3500);
 
-    // Mesha finishes too.
-    this.agent("mesha", { note: "Running npm test" });
+    // Aries finishes too.
+    this.agent("aries", { note: "Running npm test" });
     await this.sleep(2200);
     this.task("WF-1", { status: "review", prNumber: 5 });
-    this.act("mesha", "Mesha: WF-1 in review (PR #5)");
-    this.agent("mesha", { state: "ready", note: "PR #5 in review" });
+    this.act("aries", "Aries: WF-1 in review (PR #5)");
+    this.agent("aries", { state: "ready", note: "PR #5 in review" });
     await this.sleep(4000);
 
     // You merge on GitHub.
     this.task("WF-2", { status: "done" });
     this.act(null, "You merged PR #4 · WF-2 done");
-    this.msg("workforce", "simha", "PR #4 was merged. WF-2 is done.");
-    this.agent("kanya", { state: "ready", note: "Finished, ready for more", taskId: null });
+    this.msg("workforce", "leo", "PR #4 was merged. WF-2 is done.");
+    this.agent("virgo", { state: "ready", note: "Finished, ready for more", taskId: null });
     await this.sleep(4000);
-    this.msg("mesha", "simha", "PR #5 is ready too");
+    this.msg("aries", "leo", "PR #5 is ready too");
     await this.sleep(6000);
     this.task("WF-1", { status: "done" });
     this.act(null, "You merged PR #5 · WF-1 done");
-    this.msg("workforce", "simha", "PR #5 was merged. WF-1 is done.");
-    this.agent("mesha", { state: "ready", note: "Finished, ready for more", taskId: null });
-    this.agent("simha", { state: "working", note: "Telling the owner: all done" });
+    this.msg("workforce", "leo", "PR #5 was merged. WF-1 is done.");
+    this.agent("aries", { state: "ready", note: "Finished, ready for more", taskId: null });
+    this.agent("leo", { state: "working", note: "Telling the owner: all done" });
     await this.sleep(2500);
-    this.agent("simha", { state: "ready", note: "All tasks done" });
-    this.act("simha", "Simha: all tasks done. The story starts again in a minute.");
+    this.agent("leo", { state: "ready", note: "All tasks done" });
+    this.act("leo", "Leo: all tasks done. The story starts again in a minute.");
     await this.sleep(60000);
   }
 

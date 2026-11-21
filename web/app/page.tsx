@@ -30,7 +30,7 @@ export default function Home() {
     addEventListener("popstate", onPop);
     let stop: () => void;
     if (r.demo) {
-      const story = new DemoStory((f) => store.apply(f));
+      const story = new DemoStory((f) => store.apply(f), Number(new URLSearchParams(location.search).get("workers") ?? 2));
       setDemoApi((m, p, b) => story.handle(m, p, b));
       store.setConnected(true);
       story.start();

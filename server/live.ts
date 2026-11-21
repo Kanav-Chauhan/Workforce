@@ -15,8 +15,9 @@ export function liveState(app: App): LiveState {
     tasks: projects.flatMap((p) => db.tasks(p.id)),
     needs: db.openNeeds(),
     usage: readUsage(db),
-    activity: projects.flatMap((p) => db.activity(p.id, 60)),
-    messages: projects.flatMap((p) => db.messages(p.id, 60)),
+    // Oldest first, like the events that follow.
+    activity: projects.flatMap((p) => db.activity(p.id, 60).reverse()),
+    messages: projects.flatMap((p) => db.messages(p.id, 60).reverse()),
   };
 }
 

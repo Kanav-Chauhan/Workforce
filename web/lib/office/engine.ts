@@ -143,10 +143,11 @@ function glassArt(c: Cabin) {
   s += R(x0, gy - 49, Math.max(0, d0 - x0), 4, "#cdd4dd", 'rx="2"') + R(d1, gy - 49, x1 - d1, 4, "#cdd4dd", 'rx="2"');
   s += R(x0, gy - 2, Math.max(0, d0 - x0), 4, "#bfc6d0") + R(d1, gy - 2, x1 - d1, 4, "#bfc6d0");
   s += R(d0 - 3, gy - 50, 5, 52, "#b9c1cc", 'rx="2"') + R(d1 - 2, gy - 50, 5, 52, "#b9c1cc", 'rx="2"');
-  const room = c.row === "bot" ? x1 - d1 - 22 : d0 - x0 - 22;
+  const rightOfDoor = c.row === "bot" || d0 - x0 < 120;
+  const room = rightOfDoor ? x1 - d1 - 22 : d0 - x0 - 22;
   let label = c.label;
   if (label.length * 6.6 + 30 > room) label = label.replace(/\s+(Worker|Lead)$/, "");
-  const nx = c.row === "bot" ? d1 + 12 : x0 + 16, nw = Math.min(room, Math.max(84, label.length * 6.6 + 30));
+  const nx = rightOfDoor ? d1 + 12 : x0 + 16, nw = Math.min(room, Math.max(84, label.length * 6.6 + 30));
   s += `<g data-pick="${c.key === "ceo" ? "ceo" : `agent:${esc(c.key)}`}" class="pickable" filter="url(#fSm)"><rect x="${nx}" y="${gy - 37}" width="${nw}" height="22" rx="7" fill="#fff"/>
     <circle class="light" cx="${nx + 12}" cy="${gy - 26}" r="4.5" fill="#b4b8c2"/>
     ${T(nx + 22, gy - 22, label, `font-family="${SANS}" font-size="11.5" font-weight="600" fill="#2b2f3a"`)}</g>`;
@@ -294,7 +295,7 @@ export class OfficeEngine {
   private actors: { g: SVGGElement; base: () => number }[] = [];
   private lastOrder = "";
   private layout!: Layout;
-  private teamKey = "";
+  private teamKey: string | null = null;
   private people = new Map<string, Person>();
   private cabinIndex = new Map<string, number>();
   private screens = new Map<string, { l1: SVGTextElement; l2: SVGTextElement; code: SVGGElement; cls: SVGRectElement[]; cur: SVGRectElement; typing: boolean }>();
@@ -473,6 +474,7 @@ export class OfficeEngine {
 
   /** Screens, lights, plan wall, gate and CEO screen follow the real state. Cheap; call on every change. */
   sync(agents: Agent[], tasks: Task[], needs: Need[]) {
+    if (!this.layout) return;
     for (const a of agents) {
       this.agents.set(a.id, a);
       const i = this.cabinIndex.get(a.id);

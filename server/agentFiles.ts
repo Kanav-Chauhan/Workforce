@@ -24,7 +24,7 @@ export function roleText(agent: Agent, project: Project, team: Agent[]): string 
   const members = team
     .map((a) => {
       const s = signOf(a.sign);
-      return `- ${a.name}${s ? ` (${s.western} ${s.symbol})` : ""}: ${a.isLead ? "lead" : "developer"}${a.id === agent.id ? " ← you" : ""}`;
+      return `- ${a.name}${s ? ` ${s.symbol}` : ""}: ${a.isLead ? "lead" : "developer"}${a.id === agent.id ? " ← you" : ""}`;
     })
     .join("\n");
 
@@ -58,7 +58,7 @@ export function roleText(agent: Agent, project: Project, team: Agent[]): string 
   ];
 
   return [
-    `# You are ${agent.name}${me ? ` (${me.western} ${me.symbol})` : ""}`,
+    `# You are ${agent.name}${me ? ` ${me.symbol}` : ""}`,
     "",
     `You work in **Workforce**, a small team of Claude Code agents building the GitHub project **${project.repo}** for its owner.`,
     "",

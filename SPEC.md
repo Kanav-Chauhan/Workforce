@@ -27,7 +27,7 @@ One person: **you, the owner**. No teams, no sign-ups, no billing.
 v1 is done when this works end to end on a test repo:
 
 1. Log in. Add a project by GitHub repo (`owner/name`). Workforce clones it once.
-2. The team appears: lead **Simha** (Leo) plus 2 workers, **Mesha** (Aries) and **Kanya** (Virgo). Press **Start team**.
+2. The team appears: lead **Leo** plus 2 workers, **Aries** and **Virgo**. Press **Start team**.
 3. Type to the lead: "Add a /health page and a footer". The lead creates 2 tasks and assigns them.
 4. Each worker gets its task, makes a branch, codes, and opens a PR titled `[WF-1] …`.
 5. The task moves to **Review**. A review comment on GitHub is sent to the worker, who fixes and pushes.
@@ -209,18 +209,18 @@ After each phase: I stop, show you, update `PROGRESS.md`, commit and push, and w
 
 ## 17. Defaults (change any of these)
 
-- **Team names are the Indian zodiac signs (rashi)**, each with a personality from its sign. The personality only changes the agent's tone and focus, never the rules:
+- **Team names are the zodiac signs, English names** (renamed to English names 2026-11-21 (owner); first draft used the Sanskrit rashi names), each with a personality from its sign. The personality only changes the agent's tone and focus, never the rules:
 
 | Name | Sign | Role | Personality |
 |---|---|---|---|
-| **Simha** | Leo ♌ | **Lead** (always) | confident, decisive, sees the big picture, plans and leads |
-| **Mesha** | Aries ♈ | Worker | bold, fast starter, good at building new features |
-| **Kanya** | Virgo ♍ | Worker | careful, detail-minded, good at fixes, tests and polish |
-| Makara | Capricorn ♑ | extra worker | disciplined, steady, good at long, structured jobs |
-| Tula | Libra ♎ | extra worker | balanced, good at UI and clean code |
-| Vrishchika | Scorpio ♏ | extra worker | deep, good at debugging and security |
+| **Leo** | ♌ | **Lead** (always) | confident, decisive, sees the big picture, plans and leads |
+| **Aries** | ♈ | Worker | bold, fast starter, good at building new features |
+| **Virgo** | ♍ | Worker | careful, detail-minded, good at fixes, tests and polish |
+| Capricorn | ♑ | extra worker | disciplined, steady, good at long, structured jobs |
+| Libra | ♎ | extra worker | balanced, good at UI and clean code |
+| Scorpio | ♏ | extra worker | deep, good at debugging and security |
 
-  New projects start with Simha + Mesha + Kanya. Extra workers come from the rest of the 12 signs.
+  New projects start with Leo + Aries + Virgo. Extra workers come from the rest of the 12 signs.
 - Model: Claude Code's default.
 - Port 3010, address `p7.kanav.space`.
 - Task ID prefix from the project name (`WF-1`, `ATL-1`…).

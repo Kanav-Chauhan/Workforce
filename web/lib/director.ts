@@ -35,7 +35,7 @@ export function bubbleText(text: string, max = 34): string {
   return clip(first || t, max);
 }
 
-/** "Mesha: Running npm install zod" → "May I run npm install zod?" */
+/** "Aries: Running npm install zod" → "May I run npm install zod?" */
 export function askText(need: Pick<Need, "kind" | "title">, max = 34): string {
   const title = need.title.replace(/^[A-Z][a-z]+:\s*/, "").trim();
   if (need.kind === "permission") {

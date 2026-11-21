@@ -4,17 +4,17 @@ import { ActQueue, askText, bubbleText, Director } from "./director";
 
 const at = "2026-11-21T10:00:00.000Z";
 const agent = (sign: string, patch: Partial<Agent> = {}): Agent => ({
-  id: `p.${sign}`, projectId: "p", sign, name: sign, isLead: sign === "simha", extraRole: "", model: "", sessionId: "", state: "ready", note: "", taskId: null, stateSince: at, ...patch,
+  id: `p.${sign}`, projectId: "p", sign, name: sign, isLead: sign === "leo", extraRole: "", model: "", sessionId: "", state: "ready", note: "", taskId: null, stateSince: at, ...patch,
 });
 const task = (patch: Partial<Task>): Task => ({
   id: "P-1", projectId: "p", title: "t", details: "", files: [], doneWhen: "", dependsOn: [], phase: "", status: "todo", ownerId: null, prNumber: null, note: "", createdAt: at, updatedAt: at, ...patch,
 });
-const need = (patch: Partial<Need>): Need => ({ id: 1, projectId: "p", agentId: "p.mesha", kind: "permission", title: "Mesha: Running npm install zod", details: "", status: "open", answer: "", at, ...patch });
-const msg = (patch: Partial<Message>): Message => ({ id: 1, projectId: "p", fromId: "p.simha", toId: "p.mesha", text: "hi", delivered: false, at, ...patch });
+const need = (patch: Partial<Need>): Need => ({ id: 1, projectId: "p", agentId: "p.aries", kind: "permission", title: "Aries: Running npm install zod", details: "", status: "open", answer: "", at, ...patch });
+const msg = (patch: Partial<Message>): Message => ({ id: 1, projectId: "p", fromId: "p.leo", toId: "p.aries", text: "hi", delivered: false, at, ...patch });
 
 function director() {
   const d = new Director("p");
-  d.init({ agents: [agent("simha"), agent("mesha"), agent("kanya")], tasks: [], needs: [], messages: [] });
+  d.init({ agents: [agent("leo"), agent("aries"), agent("virgo")], tasks: [], needs: [], messages: [] });
   return d;
 }
 
@@ -22,7 +22,7 @@ describe("director: events become office acts", () => {
   it("a message between agents is a visit with a short bubble", () => {
     const d = director();
     const acts = d.apply({ type: "message", message: msg({ text: "WF-1 is yours: build the /health page. Use zod for parsing." }) });
-    expect(acts).toEqual([{ kind: "visit", agentId: "p.simha", toId: "p.mesha", text: "WF-1 is yours: build the /health…" }]);
+    expect(acts).toEqual([{ kind: "visit", agentId: "p.leo", toId: "p.aries", text: "WF-1 is yours: build the /health…" }]);
   });
 
   it("the same message twice is acted once", () => {
@@ -33,7 +33,7 @@ describe("director: events become office acts", () => {
 
   it("owner and Workforce messages are envelopes", () => {
     const d = director();
-    expect(d.apply({ type: "message", message: msg({ id: 2, fromId: "owner" }) })).toEqual([{ kind: "envelope", toId: "p.mesha", from: "owner" }]);
+    expect(d.apply({ type: "message", message: msg({ id: 2, fromId: "owner" }) })).toEqual([{ kind: "envelope", toId: "p.aries", from: "owner" }]);
     expect(d.apply({ type: "message", message: msg({ id: 3, fromId: "workforce" }) })[0]).toMatchObject({ kind: "envelope", from: "workforce" });
   });
 
@@ -45,7 +45,7 @@ describe("director: events become office acts", () => {
 
   it("a permission need walks the agent to the CEO until it is done", () => {
     const d = director();
-    expect(d.apply({ type: "need", need: need({}) })).toEqual([{ kind: "askCeo", agentId: "p.mesha", needId: 1, text: "May I run npm install zod?" }]);
+    expect(d.apply({ type: "need", need: need({}) })).toEqual([{ kind: "askCeo", agentId: "p.aries", needId: 1, text: "May I run npm install zod?" }]);
     expect(d.isOpen(1)).toBe(true);
     expect(d.apply({ type: "need", need: need({ status: "done" }) })).toEqual([{ kind: "needDone", needId: 1 }]);
     expect(d.isOpen(1)).toBe(false);
@@ -59,30 +59,30 @@ describe("director: events become office acts", () => {
 
   it("review with a PR → parcel; done → celebration", () => {
     const d = director();
-    d.apply({ type: "task", task: task({ status: "working", ownerId: "p.kanya" }) });
-    expect(d.apply({ type: "task", task: task({ status: "review", ownerId: "p.kanya", prNumber: 4 }) })).toEqual([{ kind: "parcel", agentId: "p.kanya", taskId: "P-1", pr: 4 }]);
+    d.apply({ type: "task", task: task({ status: "working", ownerId: "p.virgo" }) });
+    expect(d.apply({ type: "task", task: task({ status: "review", ownerId: "p.virgo", prNumber: 4 }) })).toEqual([{ kind: "parcel", agentId: "p.virgo", taskId: "P-1", pr: 4 }]);
     // Same PR again (e.g. note changed): no second parcel.
-    expect(d.apply({ type: "task", task: task({ status: "review", ownerId: "p.kanya", prNumber: 4, note: "x" }) })).toEqual([]);
-    expect(d.apply({ type: "task", task: task({ status: "done", ownerId: "p.kanya", prNumber: 4 }) })).toEqual([{ kind: "done", taskId: "P-1", pr: 4 }]);
+    expect(d.apply({ type: "task", task: task({ status: "review", ownerId: "p.virgo", prNumber: 4, note: "x" }) })).toEqual([]);
+    expect(d.apply({ type: "task", task: task({ status: "done", ownerId: "p.virgo", prNumber: 4 }) })).toEqual([{ kind: "done", taskId: "P-1", pr: 4 }]);
   });
 
   it("agent changes become a pose update only when something visible changed", () => {
     const d = director();
-    expect(d.apply({ type: "agent", agent: agent("mesha", { state: "working", note: "Editing a.ts" }) })).toEqual([{ kind: "pose", agentId: "p.mesha" }]);
-    expect(d.apply({ type: "agent", agent: agent("mesha", { state: "working", note: "Editing a.ts" }) })).toEqual([]);
+    expect(d.apply({ type: "agent", agent: agent("aries", { state: "working", note: "Editing a.ts" }) })).toEqual([{ kind: "pose", agentId: "p.aries" }]);
+    expect(d.apply({ type: "agent", agent: agent("aries", { state: "working", note: "Editing a.ts" }) })).toEqual([]);
   });
 
   it("init puts waiting agents at the CEO and PRs on the gate, without replaying old messages", () => {
     const d = new Director("p");
     const acts = d.init({
-      agents: [agent("simha"), agent("mesha")],
-      tasks: [task({ status: "review", ownerId: "p.mesha", prNumber: 7 })],
+      agents: [agent("leo"), agent("aries")],
+      tasks: [task({ status: "review", ownerId: "p.aries", prNumber: 7 })],
       needs: [need({ id: 9, kind: "question", title: "Which colour?" })],
       messages: [msg({ id: 4 })],
     });
     expect(acts).toEqual([
-      { kind: "parcel", agentId: "p.mesha", taskId: "P-1", pr: 7, instant: true },
-      { kind: "askCeo", agentId: "p.mesha", needId: 9, text: "Which colour?", instant: true },
+      { kind: "parcel", agentId: "p.aries", taskId: "P-1", pr: 7, instant: true },
+      { kind: "askCeo", agentId: "p.aries", needId: 9, text: "Which colour?", instant: true },
     ]);
     expect(d.apply({ type: "message", message: msg({ id: 4 }) })).toEqual([]);
   });
@@ -90,11 +90,11 @@ describe("director: events become office acts", () => {
 
 describe("text helpers", () => {
   it("bubbles are one short line without the Workforce tag", () => {
-    expect(bubbleText("[Workforce] Message from Simha: ok")).toBe("Message from Simha: ok");
+    expect(bubbleText("[Workforce] Message from Leo: ok")).toBe("Message from Leo: ok");
     expect(bubbleText("Done. Next one?")).toBe("Done.");
   });
   it("asks read like a question", () => {
-    expect(askText({ kind: "permission", title: "Kanya: Editing src/app/page.tsx" })).toBe("May I edit src/app/page.tsx?");
+    expect(askText({ kind: "permission", title: "Virgo: Editing src/app/page.tsx" })).toBe("May I edit src/app/page.tsx?");
     expect(askText({ kind: "question", title: "Which database" })).toBe("Which database?");
   });
 });
