@@ -283,6 +283,9 @@ export class PrSync {
         }
       }
       const who = [...new Set(items.map((f) => (f.kind === "check" ? "a check" : f.who)))].join(", ");
+      // The lead hears about it too, so it doesn't "correct" a change the reviewer asked for.
+      if (author && lead && lead.id !== author.id)
+        tell(lead.id, `${tag} got review feedback from ${who}; ${author.name} is fixing it. The reviewer's requests win over the original task text.`);
       this.store.activity(project.id, null, `PR #${snap.number}: ${items.length} new review item${items.length > 1 ? "s" : ""} from ${who}${author ? ` → ${author.name}` : ""}`);
     }
 

@@ -144,16 +144,19 @@ Always blocked, in both styles: reading `~/deploy`, `~/.ssh`, `~/.workforce/work
 
 ## 10. GitHub loop
 
-Every 30 seconds (sooner after an agent finishes a turn), one `gh api graphql` query per project:
-- PR title starts with `[ID]` → linked to that task → task moves to **Review**.
-- New review comments → the author is told to read, fix, push and resolve them.
-- Changes approved / checks passing → **Needs you: "PR #4 ready to merge"**, and the lead is told.
-- Merge conflict → the author is told to update from `main`.
-- Merged → task **Done**, the lead is told to assign the next one.
-- Closed without merge → task back to **To do**, the lead is told.
-- Stays under GitHub's hourly limit (slows down when low).
+Every 30 seconds (about 4 s after an agent finishes a turn, never closer than 10 s), one `gh api graphql` query per project (`server/github.ts`, ~1 point of the 5,000/hour budget):
+- PR title starts with `[ID]` (or the worker reported that PR number) → linked to that task (number, URL, state, review decision, checks, mergeable) → task moves to **Review**.
+- New feedback (review bodies, unresolved inline comments with file:line, PR comments, failed checks, merge conflicts; bots like CodeRabbit included) → one message to the PR's author, each item only once (deduped by GitHub id in `pr_seen`) → task back to **Working** until a new commit lands on the branch, then **Review** again. The team's own GitHub comments start with `[Name]` (role-file rule) and are skipped.
+- Ready (open, not draft, checks passing or none, no conflict, no changes requested, nothing waiting on the author, the chosen review bot has spoken) → **Needs you: "PR #4 is ready to merge"** with Open on GitHub / **Merge** / Later, and the lead is told.
+- **Merge** (owner's click, dashboard or PR drawer) runs `gh pr merge --squash|--merge|--rebase` (the project's method if the repo allows it, else the first allowed), then deletes the branch.
+- Merged → task **Done**, the lead (and author) are told, confetti at the gate. Closed without merge → task back to **To do** with no owner and a note, the lead is told.
+- Errors back off (30 s × 2ⁿ, up to 10 min); under 300 points left it waits for the reset. Last sync, errors and points left show in Settings → Debug and the PR drawer.
 
-Uses the VPS's existing `gh` login. Agents push with the same login.
+**Workflow settings** (Settings → Workflow, per project): reviewer = you (default) / CodeRabbit / Greptile / Copilot (agents wait for and address the bot) / a command (run in the author's folder after each push, output sent to them) / none · who merges = you (default) or the lead (MCP `merge_pr`, only linked + ready PRs; agents' `gh pr merge` stays denied) · merge method (squash default) · optional deploy step command + which agents run it (they run it before the PR and report the result; no deploy infrastructure). Agents follow changes after a restart.
+
+**Office:** a parcel goes back to the author's cabin on changes requested, passes through the gate (green tick) when ready, confetti on merge. Clicking a parcel opens the PR drawer.
+
+Uses the machine's `gh` login. Agents push with the same login.
 
 ## 11. Usage guard
 
@@ -212,7 +215,7 @@ Rules can be changed later if there's a good reason.
 | **1. Engine** | server, SQLite, agents in tmux, role/settings/MCP files, hooks → status, message delivery, team tools | on a test repo: start 3 agents from a script, the lead creates and assigns 2 tasks, the workers receive them and reply |
 | **2a. Office look** | 2 clickable office previews (3D soft vs 2D illustrated), password-protected at p7 | you pick one |
 | **2b. Dashboard** | the office (§5b) + all screens in §5; live terminal; Needs you + permission Allow/Deny; JSM HQ extras (§15) | you run a small job entirely from the browser, including one permission prompt |
-| **3. GitHub loop** | §10 | a task goes assigned → PR → review comment fixed → you merge → Done, without help |
+| **3. GitHub loop** | §10, PR drawer, Settings → Workflow | a task goes assigned → PR → review comment fixed → you merge → Done, without help |
 | **4. Online** | login, service, Caddy at p7, README, MIT licence (your name) | you open it on your phone and see live agents |
 
 After each phase: I stop, show you, update `PROGRESS.md`, commit and push, and wait for your OK.
