@@ -23,6 +23,8 @@ export class Hooks {
   private waiting = new Map<number, (d: Decision | null) => void>();
   /** Called when the owner answers a prompt that only exists on screen (no hook waiting). */
   pressKeys: (agentId: string, allow: boolean, kind: "permission" | "trust") => Promise<void> = async () => {};
+  /** Called when an agent's turn ends (the GitHub sync looks sooner: it may have pushed). */
+  onTurnEnd: (projectId: string) => void = () => {};
 
   constructor(private store: Store, private courier: Courier) {}
 
@@ -53,7 +55,10 @@ export class Hooks {
       }
     }
     if (next) this.store.updateAgent(agent.id, next);
-    if (event === "Stop") this.store.activity(agent.projectId, agent.id, `${agent.name} finished a step`);
+    if (event === "Stop") {
+      this.store.activity(agent.projectId, agent.id, `${agent.name} finished a step`);
+      this.onTurnEnd(agent.projectId);
+    }
     if (event === "Notification" && next?.state === "needs-you") this.store.activity(agent.projectId, agent.id, `${agent.name} needs you: ${next.note}`);
 
     if (event === "PermissionRequest") return this.permission(agent, body);

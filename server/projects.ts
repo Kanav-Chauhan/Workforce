@@ -5,7 +5,7 @@ import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, resolve } from "node:path";
 import { DEFAULT_BOARD } from "../shared/boards.ts";
-import type { Agent, PermissionStyle, Project } from "../shared/types.ts";
+import { DEFAULT_WORKFLOW, type Agent, type PermissionStyle, type Project } from "../shared/types.ts";
 import { home } from "./paths.ts";
 import { now } from "./db.ts";
 import type { Store } from "./store.ts";
@@ -82,7 +82,7 @@ export class Projects {
     const project: Project = {
       id, repo: info.nameWithOwner, name: info.name, prefix: prefixFor(info.name),
       defaultBranch: info.defaultBranchRef?.name || "main", permissionStyle: opts.permissionStyle === "trusted" ? "trusted" : "careful", createdAt: now(),
-      stack: [], boards: [DEFAULT_BOARD], planExport: false,
+      stack: [], boards: [DEFAULT_BOARD], planExport: false, workflow: { ...DEFAULT_WORKFLOW },
     };
     this.db.addProject(project);
     this.store.emit({ type: "project", project });

@@ -15,10 +15,12 @@ const http = buildHttp(app, pty);
 await http.listen({ host: "127.0.0.1", port: port() });
 app.courier.startSweep();
 app.runner.startWatching();
+app.prSync.start();
 console.log(`Workforce running on http://127.0.0.1:${port()}  (data: ${dbFile()}, agents: tmux -L ${SOCKET} ls)`);
 
 const quit = async () => {
   app.runner.stopWatching();
+  app.prSync.stop();
   app.courier.stopSweep();
   await http.close();
   console.log("Workforce stopped. Agents keep running in tmux.");

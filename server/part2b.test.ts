@@ -1,3 +1,4 @@
+import { DEFAULT_WORKFLOW } from "../shared/types.ts";
 import { mkdtempSync, readFileSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,7 +29,7 @@ function setup() {
   const courier = new Courier(store, { put: async () => true, submit: async () => true });
   const work = new Work(store, courier);
   const projects = new Projects(store);
-  const project: Project = { id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now(), stack: [], boards: ["Main"], planExport: false };
+  const project: Project = { id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now(), stack: [], boards: ["Main"], planExport: false, workflow: { ...DEFAULT_WORKFLOW } };
   db.addProject(project);
   for (const sign of ["leo", "aries"]) projects.addAgent("demo", sign);
   return { db, store, work, projects, project };

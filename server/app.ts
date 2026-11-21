@@ -4,6 +4,8 @@ import { Db } from "./db.ts";
 import { Courier } from "./courier.ts";
 import { Hooks } from "./hooks.ts";
 import { PlanExport } from "./planExport.ts";
+import type { GhPort } from "./github.ts";
+import { PrSync } from "./prSync.ts";
 import { Projects } from "./projects.ts";
 import { Runner, sessionName } from "./runner.ts";
 import { Store } from "./store.ts";
@@ -19,10 +21,11 @@ export interface App {
   runner: Runner;
   projects: Projects;
   planExport: PlanExport;
+  prSync: PrSync;
   startedAt: number;
 }
 
-export function createApp(db = new Db()): App {
+export function createApp(db = new Db(), gh?: GhPort): App {
   const store = new Store(db);
   const sessionOf = (agentId: string) => {
     const a = db.agent(agentId);
@@ -52,5 +55,7 @@ export function createApp(db = new Db()): App {
   const runner = new Runner(store, courier, hooks);
   const projects = new Projects(store);
   const planExport = new PlanExport(store);
-  return { store, courier, work, hooks, runner, projects, planExport, startedAt: Date.now() };
+  const prSync = new PrSync(store, work, gh);
+  hooks.onTurnEnd = (projectId) => prSync.soon(projectId);
+  return { store, courier, work, hooks, runner, projects, planExport, prSync, startedAt: Date.now() };
 }

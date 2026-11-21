@@ -18,6 +18,63 @@ export interface Project {
   boards: string[];
   /** Write the plan to docs/plan.md in the lead's folder (never committed by Workforce). */
   planExport: boolean;
+  /** How PRs get reviewed and merged (Settings → Workflow). */
+  workflow: Workflow;
+}
+
+/** Who reviews a PR before it may be merged. Bots: agents wait for and address the bot's review.
+ * "custom": Workforce runs `reviewCommand` in the author's folder on each push and sends the output back. */
+export type Reviewer = "none" | "owner" | "coderabbit" | "greptile" | "copilot" | "custom";
+export type MergeMethod = "squash" | "merge" | "rebase";
+
+export interface Workflow {
+  reviewer: Reviewer;
+  reviewCommand: string;
+  /** The owner merges (default). "lead": the lead gets a merge_pr tool, for ready PRs only. */
+  mergeBy: "owner" | "lead";
+  mergeMethod: MergeMethod;
+  /** Optional step a worker runs before opening a PR (e.g. `npm run build`). */
+  deployCommand: string;
+  /** The agents that run the deploy step. */
+  deployAgents: string[];
+}
+
+export const DEFAULT_WORKFLOW: Workflow = { reviewer: "owner", reviewCommand: "", mergeBy: "owner", mergeMethod: "squash", deployCommand: "", deployAgents: [] };
+
+export type PrState = "open" | "merged" | "closed";
+export type ChecksState = "passing" | "failing" | "pending" | "none";
+export type ReviewState = "approved" | "changes" | "waiting" | "none";
+
+/** A pull request Workforce saw on GitHub, linked to a task when its title starts with "[ID]". */
+export interface PullRequest {
+  projectId: string;
+  number: number;
+  taskId: string | null;
+  authorId: string | null; // the agent who owns the task
+  title: string;
+  url: string;
+  state: PrState;
+  draft: boolean;
+  branch: string;
+  headSha: string;
+  review: ReviewState;
+  checks: ChecksState;
+  mergeable: "yes" | "conflict" | "unknown";
+  comments: number; // review comments + PR comments
+  ready: boolean; // ready for the owner to merge
+  updatedAt: string;
+}
+
+/** The GitHub sync for one project (Settings → Debug). */
+export interface SyncStatus {
+  projectId: string;
+  lastAt: string | null;
+  ok: boolean;
+  error: string;
+  nextAt: string | null;
+  failures: number;
+  rateRemaining: number | null;
+  rateResetAt: string | null;
 }
 
 export interface Agent {
@@ -51,6 +108,8 @@ export interface Task {
   ownerId: string | null;
   prNumber: number | null;
   note: string;
+  /** What the worker reported for the deploy step ("" = none). */
+  deployResult: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -96,7 +155,8 @@ export type LiveEvent =
   | { type: "activity"; activity: Activity }
   | { type: "project"; project: Project }
   | { type: "agentRemoved"; id: string; projectId: string }
-  | { type: "office"; office: Office };
+  | { type: "office"; office: Office }
+  | { type: "pr"; pr: PullRequest };
 
 /** Machine-wide settings shown in the office. */
 export interface Office {
@@ -121,6 +181,7 @@ export interface LiveState {
   activity: Activity[];
   messages: Message[];
   office: Office;
+  prs: PullRequest[];
 }
 
 /** What /live sends: the state first, then events. */

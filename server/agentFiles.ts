@@ -6,7 +6,7 @@ import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { stackPlan } from "../shared/stacks.ts";
-import type { Agent, McpServer, PermissionStyle, Project } from "../shared/types.ts";
+import { DEFAULT_WORKFLOW, type Agent, type McpServer, type PermissionStyle, type Project, type Reviewer, type Workflow } from "../shared/types.ts";
 import { agentFolder, agentPrivateDir, ensureDir, home, localUrl, projectDir } from "./paths.ts";
 import { signOf } from "./team.ts";
 
@@ -30,7 +30,19 @@ const NO_EXTRAS: Extras = { envNames: [], mcp: [] };
 /** A custom agent's sign is its own id, not a zodiac sign. */
 const roleOf = (a: Agent) => a.role || (a.isLead ? "lead" : "developer");
 
+/** What each reviewer choice means for a developer. */
+const REVIEW_RULE: Record<Reviewer, (wf: Workflow) => string> = {
+  none: () => "There is no reviewer: once checks pass, your PR waits for the owner to merge.",
+  owner: () => "The owner reviews your PR on GitHub. Their comments reach you as messages from Workforce.",
+  coderabbit: () => "CodeRabbit reviews every PR. Wait for its review (Workforce sends you its comments) and address every actionable one; explain in a reply if you disagree.",
+  greptile: () => "Greptile reviews every PR. Wait for its review (Workforce sends you its comments) and address every actionable one; explain in a reply if you disagree.",
+  copilot: () => "GitHub Copilot reviews every PR. Wait for its review (Workforce sends you its comments) and address every actionable one; explain in a reply if you disagree.",
+  custom: (wf) => "After each push Workforce runs `" + wf.reviewCommand + "` in your folder and sends you its output. Fix what it reports.",
+};
+
 export function roleText(agent: Agent, project: Project, team: Agent[], extras: Extras = NO_EXTRAS): string {
+  const wf = project.workflow ?? DEFAULT_WORKFLOW;
+  const deploy = !!wf.deployCommand.trim() && wf.deployAgents.includes(agent.id);
   const me = signOf(agent.sign);
   const personality = me?.personality ?? (agent.role ? `You are the team's ${agent.role}. Focus on what a good ${agent.role} cares about.` : "");
   const members = team
@@ -48,7 +60,10 @@ export function roleText(agent: Agent, project: Project, team: Agent[], extras: 
     "Tasks sit on plan boards (see `tasks`). When the owner names a board or a stage (\"v1\", \"Polish\"), pass it as `board` in `create_task`.",
     "Give tasks with `assign` only to developers who are free (check `team`). A developer whose PR is in review can take the next task.",
     "Put any extra instructions for a task in `assign`'s note. Don't send them as a separate message first: the developer would start before the task is theirs.",
-    "When a task goes to review, tell the owner which PRs are ready and the order to merge them in. You never merge.",
+    "Workforce watches GitHub for you: a PR titled `[ID] …` is linked to its task (task → Review), review comments and failed checks go straight to the PR's author (task → Working until they push), a merged PR makes the task Done and you are told, a PR closed without merging puts the task back in To do and you are told.",
+    ...(wf.mergeBy === "lead"
+      ? ["The owner lets you merge: when Workforce tells you a PR is ready (checks pass, review done), you may merge it with `merge_pr`, in a sensible order. Never merge with gh or git, and never merge a PR Workforce hasn't called ready."]
+      : ["When PRs are ready, tell the owner the order to merge them in. The owner merges; you never merge."]),
     "If the request is unclear or a decision belongs to the owner, ask with `ask_owner` before planning.",
   ];
   const worker = [
@@ -56,11 +71,14 @@ export function roleText(agent: Agent, project: Project, team: Agent[], extras: 
     "When you are told to start a task: call `my_task`, then `git fetch origin` and create a branch from the latest main: `git switch -c <task-id-lowercase> origin/" + project.defaultBranch + "`.",
     "Edit only the files your task lists. If you need another file, ask the lead with `message`.",
     "Run the project's checks (tests, lint, typecheck) if it has them. Commit with clear messages.",
-    "Push your branch and open the PR with `gh pr create`. The PR title MUST start with the task id in brackets, e.g. `[" + project.prefix + "-3] Add footer`.",
+    ...(deploy ? ["Before you open the PR, run the deploy step `" + wf.deployCommand + "` in your folder. If it fails, fix it first. Pass its result in `report`'s `deploy` field ('passed', or 'failed: why')."] : []),
+    "Push your branch and open the PR with `gh pr create`. The PR title MUST be `[TASK-ID] title`, e.g. `[" + project.prefix + "-3] Add footer`. That is how Workforce links the PR to your task.",
     "Then call `report` with status `review` and the PR number. The lead is told automatically; don't also message them the same news.",
     "If you are stuck, call `report` with status `blocked` and say why.",
-    "When review comments arrive, fix them on the same branch, push, and reply on each thread.",
-    "Never merge a PR, never push to " + project.defaultBranch + ", never force-push.",
+    REVIEW_RULE[wf.reviewer](wf),
+    "When Workforce sends you review feedback, fix it on the SAME branch, commit and push (no new PR, never force-push), reply on each comment thread, then call `report` with status `review` and the PR number again.",
+    "Start every comment or reply you write on GitHub with your name in brackets, e.g. `[" + agent.name + "] Fixed: …`. Workforce uses this to tell your comments apart from the reviewer's.",
+    "Never merge a PR (the owner merges), never push to " + project.defaultBranch + ", never force-push.",
   ];
   const everyone = [
     "Messages that start with `[Workforce]` come from the system or a teammate. Act on them.",
@@ -90,7 +108,7 @@ export function roleText(agent: Agent, project: Project, team: Agent[], extras: 
     "",
     "## Team tools (MCP server `" + MCP_NAME + "`)",
     agent.isLead
-      ? "`team`, `tasks`, `create_task`, `edit_task`, `assign`, `message`, `ask_owner`"
+      ? "`team`, `tasks`, `create_task`, `edit_task`, `assign`, `message`, `ask_owner`" + (wf.mergeBy === "lead" ? ", `merge_pr`" : "")
       : "`team`, `tasks`, `my_task`, `report`, `message`, `ask_owner`",
     ...(extras.mcp.length ? ["", "## Other tools the owner added (MCP servers)", extras.mcp.map((m) => `\`${m.name}\``).join(", ")] : []),
     ...(extras.envNames.length

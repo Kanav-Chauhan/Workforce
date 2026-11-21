@@ -4,6 +4,7 @@
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { LiveState } from "../shared/types.ts";
 import type { App } from "./app.ts";
+import { publicPr } from "./db.ts";
 import { readUsage } from "./usage.ts";
 
 export function liveState(app: App): LiveState {
@@ -19,6 +20,7 @@ export function liveState(app: App): LiveState {
     activity: projects.flatMap((p) => db.activity(p.id, 60).reverse()),
     messages: projects.flatMap((p) => db.messages(p.id, 60).reverse()),
     office: { name: db.setting("office_name") ?? "" },
+    prs: db.prs().slice(0, 300).map(publicPr),
   };
 }
 

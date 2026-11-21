@@ -2,7 +2,8 @@
 // Small typed helpers per table; every change goes through `store` so it can be broadcast.
 
 import { DatabaseSync } from "node:sqlite";
-import type { Activity, Agent, AgentState, McpServer, Message, Need, NeedKind, PermissionStyle, Project, Task, TaskStatus } from "../shared/types.ts";
+import { DEFAULT_WORKFLOW } from "../shared/types.ts";
+import type { Activity, Agent, AgentState, McpServer, Message, Need, NeedKind, PermissionStyle, Project, PullRequest, Task, TaskStatus, Workflow } from "../shared/types.ts";
 import { dbFile, ensureDir, home } from "./paths.ts";
 
 const SCHEMA = `
@@ -42,6 +43,15 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   args TEXT NOT NULL DEFAULT '[]', url TEXT NOT NULL DEFAULT '', header_name TEXT NOT NULL DEFAULT '', env_name TEXT NOT NULL DEFAULT '',
   agent_ids TEXT NOT NULL DEFAULT '[]'
 );
+CREATE TABLE IF NOT EXISTS prs (
+  project_id TEXT NOT NULL, number INTEGER NOT NULL, task_id TEXT, author_id TEXT, title TEXT NOT NULL, url TEXT NOT NULL,
+  state TEXT NOT NULL, draft INTEGER NOT NULL DEFAULT 0, branch TEXT NOT NULL DEFAULT '', head_sha TEXT NOT NULL DEFAULT '',
+  review TEXT NOT NULL DEFAULT 'none', checks TEXT NOT NULL DEFAULT 'none', mergeable TEXT NOT NULL DEFAULT 'unknown',
+  comments INTEGER NOT NULL DEFAULT 0, ready INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+  feedback_sha TEXT NOT NULL DEFAULT '', merge_need_id INTEGER,
+  PRIMARY KEY (project_id, number)
+);
+CREATE TABLE IF NOT EXISTS pr_seen (project_id TEXT NOT NULL, key TEXT NOT NULL, at TEXT NOT NULL, PRIMARY KEY (project_id, key));
 `;
 
 /** Columns added after the first release: added to older databases on open. */
@@ -52,6 +62,8 @@ const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
   ["agents", "role", "TEXT NOT NULL DEFAULT ''"],
   ["agents", "color", "TEXT NOT NULL DEFAULT ''"],
   ["agents", "folder", "TEXT NOT NULL DEFAULT ''"],
+  ["projects", "workflow", "TEXT NOT NULL DEFAULT '{}'"],
+  ["tasks", "deploy_result", "TEXT NOT NULL DEFAULT ''"],
 ];
 
 export const now = () => new Date().toISOString();
@@ -70,6 +82,7 @@ const toProject = (r: Row): Project => ({
   id: s(r.id), repo: s(r.repo), name: s(r.name), prefix: s(r.prefix), defaultBranch: s(r.default_branch),
   permissionStyle: s(r.permission_style) as PermissionStyle, createdAt: s(r.created_at),
   stack: json(r.stack, []), boards: json(r.boards, []), planExport: !!r.plan_export,
+  workflow: { ...DEFAULT_WORKFLOW, ...json<Partial<Workflow>>(r.workflow, {}) },
 });
 const toAgent = (r: Row): Agent => ({
   id: s(r.id), projectId: s(r.project_id), sign: s(r.sign), name: s(r.name), isLead: !!r.is_lead,
@@ -80,8 +93,21 @@ const toTask = (r: Row): Task => ({
   id: s(r.id), projectId: s(r.project_id), title: s(r.title), details: s(r.details), files: json(r.files, []),
   doneWhen: s(r.done_when), dependsOn: json(r.depends_on, []), phase: s(r.phase), status: s(r.status) as TaskStatus,
   ownerId: r.owner_id == null ? null : s(r.owner_id), prNumber: r.pr_number == null ? null : Number(r.pr_number),
-  note: s(r.note), createdAt: s(r.created_at), updatedAt: s(r.updated_at),
+  note: s(r.note), deployResult: s(r.deploy_result), createdAt: s(r.created_at), updatedAt: s(r.updated_at),
 });
+/** A PR row plus the sync's own bookkeeping. */
+export interface PrRow extends PullRequest {
+  feedbackSha: string; // head commit when feedback was last sent ("" = none waiting)
+  mergeNeedId: number | null;
+}
+const toPr = (r: Row): PrRow => ({
+  projectId: s(r.project_id), number: Number(r.number), taskId: r.task_id == null ? null : s(r.task_id), authorId: r.author_id == null ? null : s(r.author_id),
+  title: s(r.title), url: s(r.url), state: s(r.state) as PullRequest["state"], draft: !!r.draft, branch: s(r.branch), headSha: s(r.head_sha),
+  review: s(r.review) as PullRequest["review"], checks: s(r.checks) as PullRequest["checks"], mergeable: s(r.mergeable) as PullRequest["mergeable"],
+  comments: Number(r.comments), ready: !!r.ready, updatedAt: s(r.updated_at), feedbackSha: s(r.feedback_sha), mergeNeedId: r.merge_need_id == null ? null : Number(r.merge_need_id),
+});
+/** What the dashboard sees of a PR row. */
+export const publicPr = ({ feedbackSha: _f, mergeNeedId: _m, ...pr }: PrRow): PullRequest => pr;
 const toMessage = (r: Row): Message => ({
   id: Number(r.id), projectId: s(r.project_id), fromId: s(r.from_id), toId: s(r.to_id), text: s(r.text), delivered: !!r.delivered, at: s(r.at),
 });
@@ -130,14 +156,15 @@ export class Db {
   }
   addProject(p: Project) {
     this.run(
-      "INSERT INTO projects (id, repo, name, prefix, default_branch, permission_style, created_at, stack, boards, plan_export) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      p.id, p.repo, p.name, p.prefix, p.defaultBranch, p.permissionStyle, p.createdAt, JSON.stringify(p.stack), JSON.stringify(p.boards), p.planExport ? 1 : 0,
+      "INSERT INTO projects (id, repo, name, prefix, default_branch, permission_style, created_at, stack, boards, plan_export, workflow) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      p.id, p.repo, p.name, p.prefix, p.defaultBranch, p.permissionStyle, p.createdAt, JSON.stringify(p.stack), JSON.stringify(p.boards), p.planExport ? 1 : 0, JSON.stringify(p.workflow ?? DEFAULT_WORKFLOW),
     );
   }
   setPermissionStyle(id: string, style: PermissionStyle) {
     this.run("UPDATE projects SET permission_style = ? WHERE id = ?", style, id);
   }
-  updateProject(id: string, patch: Partial<Pick<Project, "stack" | "boards" | "planExport" | "permissionStyle">>) {
+  updateProject(id: string, patch: Partial<Pick<Project, "stack" | "boards" | "planExport" | "permissionStyle" | "workflow">>) {
+    if (patch.workflow) this.run("UPDATE projects SET workflow = ? WHERE id = ?", JSON.stringify(patch.workflow), id);
     if (patch.stack) this.run("UPDATE projects SET stack = ? WHERE id = ?", JSON.stringify(patch.stack), id);
     if (patch.boards) this.run("UPDATE projects SET boards = ? WHERE id = ?", JSON.stringify(patch.boards), id);
     if (patch.planExport !== undefined) this.run("UPDATE projects SET plan_export = ? WHERE id = ?", patch.planExport ? 1 : 0, id);
@@ -219,14 +246,44 @@ export class Db {
   }
   saveTask(t: Task) {
     this.run(
-      `INSERT INTO tasks (id, project_id, title, details, files, done_when, depends_on, phase, status, owner_id, pr_number, note, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO tasks (id, project_id, title, details, files, done_when, depends_on, phase, status, owner_id, pr_number, note, deploy_result, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(id) DO UPDATE SET title = excluded.title, details = excluded.details, files = excluded.files, done_when = excluded.done_when,
          depends_on = excluded.depends_on, phase = excluded.phase, status = excluded.status, owner_id = excluded.owner_id,
-         pr_number = excluded.pr_number, note = excluded.note, updated_at = excluded.updated_at`,
+         pr_number = excluded.pr_number, note = excluded.note, deploy_result = excluded.deploy_result, updated_at = excluded.updated_at`,
       t.id, t.projectId, t.title, t.details, JSON.stringify(t.files), t.doneWhen, JSON.stringify(t.dependsOn), t.phase, t.status,
-      t.ownerId, t.prNumber, t.note, t.createdAt, t.updatedAt,
+      t.ownerId, t.prNumber, t.note, t.deployResult ?? "", t.createdAt, t.updatedAt,
     );
+  }
+
+  // -------------------------------------------------------------- pull requests
+
+  prs(projectId?: string): PrRow[] {
+    const rows = projectId ? this.all("SELECT * FROM prs WHERE project_id = ? ORDER BY number DESC", projectId) : this.all("SELECT * FROM prs ORDER BY project_id, number DESC");
+    return rows.map(toPr);
+  }
+  pr(projectId: string, number: number): PrRow | undefined {
+    const r = this.one("SELECT * FROM prs WHERE project_id = ? AND number = ?", projectId, number);
+    return r && toPr(r);
+  }
+  savePr(p: PrRow) {
+    this.run(
+      `INSERT INTO prs (project_id, number, task_id, author_id, title, url, state, draft, branch, head_sha, review, checks, mergeable, comments, ready, updated_at, feedback_sha, merge_need_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, number) DO UPDATE SET task_id = excluded.task_id, author_id = excluded.author_id, title = excluded.title, url = excluded.url,
+         state = excluded.state, draft = excluded.draft, branch = excluded.branch, head_sha = excluded.head_sha, review = excluded.review, checks = excluded.checks,
+         mergeable = excluded.mergeable, comments = excluded.comments, ready = excluded.ready, updated_at = excluded.updated_at,
+         feedback_sha = excluded.feedback_sha, merge_need_id = excluded.merge_need_id`,
+      p.projectId, p.number, p.taskId, p.authorId, p.title, p.url, p.state, p.draft ? 1 : 0, p.branch, p.headSha, p.review, p.checks, p.mergeable,
+      p.comments, p.ready ? 1 : 0, p.updatedAt, p.feedbackSha, p.mergeNeedId,
+    );
+  }
+  /** Marks a GitHub item (comment, review, failed check run…) as handled. True if it was new. */
+  markSeen(projectId: string, key: string): boolean {
+    return Number(this.run("INSERT OR IGNORE INTO pr_seen (project_id, key, at) VALUES (?, ?, ?)", projectId, key, now()).changes) > 0;
+  }
+  seen(projectId: string, key: string): boolean {
+    return !!this.one("SELECT 1 FROM pr_seen WHERE project_id = ? AND key = ?", projectId, key);
   }
 
   // -------------------------------------------------------------- messages

@@ -1,3 +1,4 @@
+import { DEFAULT_WORKFLOW } from "../shared/types.ts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Project } from "../shared/types.ts";
 import { permissions, roleText } from "./agentFiles.ts";
@@ -17,7 +18,7 @@ function setup() {
   const work = new Work(store, courier);
   const hooks = new Hooks(store, courier);
   const projects = new Projects(store);
-  const project: Project = { id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now(), stack: [], boards: ["Main"], planExport: false };
+  const project: Project = { id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now(), stack: [], boards: ["Main"], planExport: false, workflow: { ...DEFAULT_WORKFLOW } };
   db.addProject(project);
   for (const sign of ["leo", "aries", "virgo"]) projects.addAgent("demo", sign);
   return { db, store, courier, work, hooks, projects, project, typed };

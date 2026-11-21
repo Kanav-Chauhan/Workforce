@@ -10,7 +10,8 @@ import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { App } from "./app.ts";
 import { registerLive } from "./live.ts";
 import { STACK } from "../shared/stacks.ts";
-import type { McpServer, PermissionStyle } from "../shared/types.ts";
+import type { McpServer, PermissionStyle, Project, Workflow } from "../shared/types.ts";
+import { publicPr } from "./db.ts";
 import { MCP_NAME } from "./agentFiles.ts";
 import { checkEnvName, envNames, setEnv, unsetEnv } from "./env.ts";
 import { planFile } from "./planExport.ts";
@@ -59,7 +60,7 @@ export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: strin
   f.all("/mcp", async (req, reply) => {
     if (!fromAgent(req)) return reply.code(403).send({});
     reply.hijack();
-    const ok = await handleMcp(store, work, bearer(req), req.raw, reply.raw, req.body);
+    const ok = await handleMcp(store, work, bearer(req), req.raw, reply.raw, req.body, app.prSync);
     if (!ok) {
       reply.raw.writeHead(401, { "content-type": "application/json" });
       reply.raw.end('{"error":"unknown agent"}');
@@ -94,15 +95,27 @@ export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: strin
   };
 
   // Project settings: permission style and plan export.
-  f.patch<{ Params: { id: string }; Body: { permissionStyle?: string; planExport?: boolean } }>("/api/projects/:id", async (req) => {
-    mustProject(req.params.id);
+  f.patch<{ Params: { id: string }; Body: { permissionStyle?: string; planExport?: boolean; workflow?: Partial<Workflow> } }>("/api/projects/:id", async (req) => {
+    const before = mustProject(req.params.id);
     const b = req.body ?? {};
     if (b.permissionStyle !== undefined && b.permissionStyle !== "careful" && b.permissionStyle !== "trusted") throw new Error("Use careful or trusted");
-    db.updateProject(req.params.id, { permissionStyle: b.permissionStyle as PermissionStyle | undefined, planExport: typeof b.planExport === "boolean" ? b.planExport : undefined });
+    const workflow = b.workflow ? checkWorkflow(before, b.workflow) : undefined;
+    db.updateProject(req.params.id, { permissionStyle: b.permissionStyle as PermissionStyle | undefined, planExport: typeof b.planExport === "boolean" ? b.planExport : undefined, workflow });
     const project = db.project(req.params.id)!;
     store.emit({ type: "project", project });
     return project;
   });
+
+  // ------------------------------------------------------------ GitHub: PRs, merge, sync
+
+  f.get<{ Params: { id: string } }>("/api/projects/:id/prs", async (req) => ({ prs: db.prs(mustProject(req.params.id).id).map(publicPr) }));
+
+  // The owner's Merge button. Agents can't reach /api (it's the owner's), and their gh can't merge (deny rule).
+  f.post<{ Params: { id: string; number: string } }>("/api/projects/:id/prs/:number/merge", async (req) =>
+    app.prSync.merge(mustProject(req.params.id).id, Number(req.params.number), "owner"),
+  );
+
+  f.post<{ Params: { id: string } }>("/api/projects/:id/sync", async (req) => app.prSync.syncNow(mustProject(req.params.id).id));
 
   f.get<{ Params: { id: string } }>("/api/projects/:id/plan-export", async (req) => {
     const project = mustProject(req.params.id);
@@ -146,6 +159,7 @@ export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: strin
       pid: process.pid,
       tmuxSessions: await tmux.list(),
       liveTerminals: !!rooms,
+      sync: app.prSync.status(),
       lastHooks: db.agents().map((a) => ({ agentId: a.id, name: a.name, projectId: a.projectId, ...(hooks.lastHook.get(a.id) ?? { event: null, at: null }) })),
     };
   });
@@ -322,3 +336,28 @@ export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: strin
 }
 
 export type Reply = FastifyReply;
+
+const REVIEWERS = ["none", "owner", "coderabbit", "greptile", "copilot", "custom"] as const;
+const METHODS = ["squash", "merge", "rebase"] as const;
+
+/** Checks a workflow change from Settings → Workflow; returns the full new workflow. */
+export function checkWorkflow(project: Project, patch: Partial<Workflow>): Workflow {
+  const w: Workflow = { ...project.workflow };
+  if (patch.reviewer !== undefined) {
+    if (!REVIEWERS.includes(patch.reviewer)) throw new Error("Unknown reviewer");
+    w.reviewer = patch.reviewer;
+  }
+  if (patch.reviewCommand !== undefined) w.reviewCommand = String(patch.reviewCommand).replace(/[\r\n]+/g, " ").trim().slice(0, 300);
+  if (patch.mergeBy !== undefined) {
+    if (patch.mergeBy !== "owner" && patch.mergeBy !== "lead") throw new Error("Merge by owner or lead");
+    w.mergeBy = patch.mergeBy;
+  }
+  if (patch.mergeMethod !== undefined) {
+    if (!METHODS.includes(patch.mergeMethod)) throw new Error("Use squash, merge or rebase");
+    w.mergeMethod = patch.mergeMethod;
+  }
+  if (patch.deployCommand !== undefined) w.deployCommand = String(patch.deployCommand).replace(/[\r\n]+/g, " ").trim().slice(0, 300);
+  if (patch.deployAgents !== undefined) w.deployAgents = [...new Set((patch.deployAgents ?? []).map(String))].slice(0, 20);
+  if (w.reviewer === "custom" && !w.reviewCommand) throw new Error("Give the review command to run");
+  return w;
+}

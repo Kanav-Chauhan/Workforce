@@ -84,7 +84,7 @@ export class Work {
     const t: Task = {
       id: `${project.prefix}-${this.db.nextTaskNumber(projectId)}`, projectId, title,
       details: (input.details ?? "").slice(0, 8000), files: (input.files ?? []).slice(0, 50), doneWhen: (input.doneWhen ?? "").slice(0, 2000),
-      dependsOn: input.dependsOn ?? [], phase: board, status: "todo", ownerId: null, prNumber: null, note: "",
+      dependsOn: input.dependsOn ?? [], phase: board, status: "todo", ownerId: null, prNumber: null, note: "", deployResult: "",
       createdAt: now(), updatedAt: now(),
     };
     this.store.saveTask(t);
@@ -190,14 +190,16 @@ export class Work {
   }
 
   /** A developer reports progress on its current task. The lead is told about blocked/review/done. */
-  report(agentId: string, status: ReportStatus, note = "", prNumber?: number): Task {
+  report(agentId: string, status: ReportStatus, note = "", prNumber?: number, deploy?: string): Task {
     const a = this.db.agent(agentId);
     const t = this.activeTaskOf(agentId);
     if (!a || !t) throw new Error("You have no task. Ask the lead for one.");
     this.setTaskStatus(t, status);
     t.note = note.slice(0, 500);
     if (prNumber) t.prNumber = prNumber;
+    if (deploy?.trim()) t.deployResult = deploy.trim().slice(0, 300);
     this.store.saveTask(t);
+    if (deploy?.trim()) this.store.activity(a.projectId, a.id, `${a.name}'s deploy step for ${t.id}: ${t.deployResult}`);
     if (status === "blocked") this.store.updateAgent(a.id, { state: "blocked", note: `Blocked: ${note}`.slice(0, 200) });
     const words = { working: "is working on", blocked: "is blocked on", review: "sent for review", done: "finished" }[status];
     this.store.activity(a.projectId, a.id, `${a.name} ${words} ${t.id}${note ? `: ${note}` : ""}${prNumber ? ` (PR #${prNumber})` : ""}`);
@@ -223,6 +225,8 @@ export class Work {
     const need = this.db.need(needId);
     if (!need || need.status !== "open") throw new Error("Nothing open with that id");
     if (need.kind === "permission" || need.kind === "trust") throw new Error("Use allow/deny for permission prompts");
+    // A "ready to merge" item the owner put aside: nobody needs to hear about it.
+    if (need.kind === "merge") return this.store.closeNeed(needId, answer || "Later")!;
     const closed = this.store.closeNeed(needId, answer)!;
     if (need.agentId) {
       const reply = answer.trim() || "Done.";

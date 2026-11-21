@@ -8,6 +8,7 @@ import { z } from "zod";
 import type { Agent } from "../shared/types.ts";
 import { boardOf, boardsOf } from "../shared/boards.ts";
 import { MCP_NAME } from "./agentFiles.ts";
+import type { PrSync } from "./prSync.ts";
 import type { Store } from "./store.ts";
 import type { Work } from "./work.ts";
 
@@ -26,7 +27,7 @@ const safe =
     }
   };
 
-function server(store: Store, work: Work, me: Agent): McpServer {
+function server(store: Store, work: Work, me: Agent, prs?: PrSync): McpServer {
   const s = new McpServer({ name: MCP_NAME, version: "0.1.0" });
   const db = store.db;
   const leadOnly = () => {
@@ -127,12 +128,17 @@ function server(store: Store, work: Work, me: Agent): McpServer {
   s.registerTool(
     "report",
     {
-      description: "Update your current task: working, blocked (say why), review (you opened the PR: give its number) or done. The lead is told automatically.",
-      inputSchema: { status: z.enum(["working", "blocked", "review", "done"]), note: z.string().optional(), pr: z.number().int().positive().optional() },
+      description: "Update your current task: working, blocked (say why), review (you opened the PR or pushed review fixes: give its number) or done. The lead is told automatically.",
+      inputSchema: {
+        status: z.enum(["working", "blocked", "review", "done"]),
+        note: z.string().optional(),
+        pr: z.number().int().positive().optional(),
+        deploy: z.string().optional().describe("Result of the project's deploy step if you were asked to run it, e.g. 'passed' or 'failed: <why>'"),
+      },
     },
-    safe(({ status, note, pr }: { status: "working" | "blocked" | "review" | "done"; note?: string; pr?: number }) => {
+    safe(({ status, note, pr, deploy }: { status: "working" | "blocked" | "review" | "done"; note?: string; pr?: number; deploy?: string }) => {
       if (status === "review" && !pr) throw new Error("Give the PR number with status review.");
-      return taskView(work.report(me.id, status, note ?? "", pr));
+      return taskView(work.report(me.id, status, note ?? "", pr, deploy));
     }),
   );
 
@@ -161,14 +167,28 @@ function server(store: Store, work: Work, me: Agent): McpServer {
     }),
   );
 
+  // Only when the owner turned "lead may merge" on (Settings → Workflow), and only for the lead.
+  if (me.isLead && prs && db.project(me.projectId)?.workflow.mergeBy === "lead")
+    s.registerTool(
+      "merge_pr",
+      {
+        description: "Lead only, and only because the owner allowed it. Merge a PR that Workforce said is ready (linked to a task, checks pass, review done). Never use gh to merge.",
+        inputSchema: { pr: z.number().int().positive() },
+      },
+      safe(async ({ pr }: { pr: number }) => {
+        const r = await prs.merge(me.projectId, pr, me.id);
+        return `PR #${r.number} is ${r.state}.`;
+      }),
+    );
+
   return s;
 }
 
 /** Handles one MCP HTTP request. Returns false if the token is unknown. */
-export async function handleMcp(store: Store, work: Work, token: string, req: IncomingMessage, res: ServerResponse, body: unknown): Promise<boolean> {
+export async function handleMcp(store: Store, work: Work, token: string, req: IncomingMessage, res: ServerResponse, body: unknown, prs?: PrSync): Promise<boolean> {
   const me = store.db.agentByToken(token);
   if (!me) return false;
-  const s = server(store, work, me);
+  const s = server(store, work, me, prs);
   const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
   res.on("close", () => {
     void transport.close();
