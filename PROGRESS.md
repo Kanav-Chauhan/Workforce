@@ -7,7 +7,7 @@
 - Session: `701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`, transcript `~/.claude/projects/-home-north/701b5a1a-8ee7-4692-9a98-0c2c50ed80b8.jsonl`
 - Resume: `cd ~ && claude --resume 701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`
 - Their code (read only, never copy into this repo): `git clone --depth 1 https://github.com/jsmastery-pro/jsm-hq.git` into a scratch folder.
-- Next step: finish `STUDY.md`, show the owner, then write `SPEC.md`.
+- Next step: owner approves `SPEC.md` (or asks for changes), then Phase 1.
 
 ## Plan
 
