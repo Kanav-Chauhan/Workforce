@@ -7,7 +7,7 @@ import { buildHttp } from "./http.ts";
 function setup() {
   const db = new Db(":memory:");
   const app = createApp(db);
-  db.addProject({ id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now() });
+  db.addProject({ id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now(), stack: [], boards: ["Main"], planExport: false });
   for (const sign of ["leo", "aries"]) app.projects.addAgent("demo", sign);
   const http = buildHttp(app);
   return { app, http };

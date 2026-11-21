@@ -1,6 +1,7 @@
 // The team's rules: tasks, assignments, reports, messages and questions for the owner.
 // Used by the MCP tools (agents) and the API (owner), so both follow the same rules.
 
+import { boardsOf, cleanBoardName } from "../shared/boards.ts";
 import type { Agent, Need, Task, TaskStatus } from "../shared/types.ts";
 import { now } from "./db.ts";
 import type { Courier } from "./courier.ts";
@@ -13,6 +14,8 @@ export interface NewTask {
   doneWhen?: string;
   dependsOn?: string[];
   phase?: string;
+  /** The plan board (same as phase; board wins if both are given). */
+  board?: string;
 }
 
 export type ReportStatus = "working" | "blocked" | "review" | "done";
@@ -77,10 +80,11 @@ export class Work {
     const title = input.title.trim().slice(0, 140);
     if (!title) throw new Error("A task needs a title");
     for (const dep of input.dependsOn ?? []) this.mustTask(projectId, dep);
+    const board = this.useBoard(projectId, input.board ?? input.phase ?? "");
     const t: Task = {
       id: `${project.prefix}-${this.db.nextTaskNumber(projectId)}`, projectId, title,
       details: (input.details ?? "").slice(0, 8000), files: (input.files ?? []).slice(0, 50), doneWhen: (input.doneWhen ?? "").slice(0, 2000),
-      dependsOn: input.dependsOn ?? [], phase: (input.phase ?? "").slice(0, 60), status: "todo", ownerId: null, prNumber: null, note: "",
+      dependsOn: input.dependsOn ?? [], phase: board, status: "todo", ownerId: null, prNumber: null, note: "",
       createdAt: now(), updatedAt: now(),
     };
     this.store.saveTask(t);
@@ -95,10 +99,48 @@ export class Work {
     if (patch.files !== undefined) t.files = patch.files.slice(0, 50);
     if (patch.doneWhen !== undefined) t.doneWhen = patch.doneWhen.slice(0, 2000);
     if (patch.dependsOn !== undefined) t.dependsOn = patch.dependsOn;
-    if (patch.phase !== undefined) t.phase = patch.phase.slice(0, 60);
+    const board = patch.board ?? patch.phase;
+    if (board !== undefined) t.phase = this.useBoard(projectId, board);
     if (patch.status !== undefined) this.setTaskStatus(t, patch.status);
     this.store.saveTask(t);
     return t;
+  }
+
+  // -------------------------------------------------------------- boards
+
+  /** Adds a plan board to the project (no-op if it's there). Returns the board's name as stored. */
+  addBoard(projectId: string, name: string): string {
+    const project = this.db.project(projectId);
+    if (!project) throw new Error("No such project");
+    const clean = cleanBoardName(name);
+    if (!clean) throw new Error("Give the board a name");
+    const boards = boardsOf(project);
+    const existing = boards.find((b) => b.toLowerCase() === clean.toLowerCase());
+    if (existing) return existing;
+    if (boards.length >= 12) throw new Error("That's a lot of boards; remove one first");
+    this.db.updateProject(projectId, { boards: [...boards, clean] });
+    this.store.emit({ type: "project", project: this.db.project(projectId)! });
+    return clean;
+  }
+
+  /** Removes an empty board (never the last one). */
+  removeBoard(projectId: string, name: string) {
+    const project = this.db.project(projectId);
+    if (!project) throw new Error("No such project");
+    const boards = boardsOf(project);
+    const first = boards[0]!.toLowerCase();
+    const n = name.toLowerCase();
+    if (boards.length <= 1) throw new Error("A project keeps at least one board");
+    const used = this.db.tasks(projectId).some((t) => (t.phase.toLowerCase() || first) === n);
+    if (used) throw new Error("Move or finish the tasks on that board first");
+    this.db.updateProject(projectId, { boards: boards.filter((b) => b.toLowerCase() !== n) });
+    this.store.emit({ type: "project", project: this.db.project(projectId)! });
+  }
+
+  /** The board a task should go on: "" stays "" (the first board); a new name is added to the project. */
+  private useBoard(projectId: string, name: string): string {
+    const clean = cleanBoardName(name);
+    return clean ? this.addBoard(projectId, clean) : "";
   }
 
   private setTaskStatus(t: Task, status: TaskStatus) {

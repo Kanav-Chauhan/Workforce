@@ -12,6 +12,12 @@ export interface Project {
   defaultBranch: string;
   permissionStyle: PermissionStyle;
   createdAt: string;
+  /** Tools ticked in the stack picker (ids from shared/stacks.ts). */
+  stack: string[];
+  /** Plan boards, in order. Tasks with no board belong to the first one. */
+  boards: string[];
+  /** Write the plan to docs/plan.md in the lead's folder (never committed by Workforce). */
+  planExport: boolean;
 }
 
 export interface Agent {
@@ -22,6 +28,9 @@ export interface Agent {
   isLead: boolean;
   extraRole: string; // owner's own text, added to the role
   model: string; // "" = Claude Code's default
+  role: string; // custom agents: the owner's role name ("QA"); "" = Lead / Worker
+  color: string; // custom agents: shirt colour "#rrggbb"; "" = the sign's colour
+  folder: string; // custom agents: an existing folder to work in; "" = Workforce's own clone
   sessionId: string; // Claude Code conversation id, kept across restarts
   state: AgentState;
   note: string;
@@ -37,7 +46,7 @@ export interface Task {
   files: string[];
   doneWhen: string;
   dependsOn: string[];
-  phase: string;
+  phase: string; // the board the task is on ("" = the project's first board)
   status: TaskStatus;
   ownerId: string | null;
   prNumber: number | null;
@@ -85,7 +94,14 @@ export type LiveEvent =
   | { type: "message"; message: Message }
   | { type: "need"; need: Need }
   | { type: "activity"; activity: Activity }
-  | { type: "project"; project: Project };
+  | { type: "project"; project: Project }
+  | { type: "agentRemoved"; id: string; projectId: string }
+  | { type: "office"; office: Office };
+
+/** Machine-wide settings shown in the office. */
+export interface Office {
+  name: string; // the sign on the office wall; "" = none yet
+}
 
 export interface Usage {
   percent: number | null; // null = unknown (no status line data yet)
@@ -104,7 +120,42 @@ export interface LiveState {
   usage: Usage;
   activity: Activity[];
   messages: Message[];
+  office: Office;
 }
 
 /** What /live sends: the state first, then events. */
 export type LiveFrame = { type: "init"; state: LiveState } | { type: "usage"; usage: Usage } | LiveEvent;
+
+/** One extra MCP server the owner added (Settings → MCP). Secret values never live here: an http
+ * server's header value comes from the agent's environment variable `envName`. */
+export interface McpServer {
+  id: number;
+  name: string;
+  kind: "stdio" | "http";
+  command: string;
+  args: string[];
+  url: string;
+  headerName: string;
+  envName: string;
+  agentIds: string[];
+}
+
+/** One line of the setup checklist. */
+export interface SetupCheck {
+  id: string;
+  label: string;
+  ok: boolean;
+  detail: string;
+  /** A fix from the fixed list in shared/setup.ts (the Run button), or a hint to do by hand. */
+  fix?: { id: string; command: string };
+  hint?: string;
+}
+
+/** A port some agent's program is listening on. */
+export interface OpenPort {
+  agentId: string;
+  port: number;
+  address: string;
+  program: string;
+  pid: number;
+}

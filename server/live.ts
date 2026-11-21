@@ -18,6 +18,7 @@ export function liveState(app: App): LiveState {
     // Oldest first, like the events that follow.
     activity: projects.flatMap((p) => db.activity(p.id, 60).reverse()),
     messages: projects.flatMap((p) => db.messages(p.id, 60).reverse()),
+    office: { name: db.setting("office_name") ?? "" },
   };
 }
 

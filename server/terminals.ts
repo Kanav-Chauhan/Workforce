@@ -9,13 +9,14 @@ import { existsSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
 import type { App } from "./app.ts";
 import { sameOrigin } from "./live.ts";
-import { agentDir } from "./paths.ts";
+import { fixCommand, setupFix } from "../shared/setup.ts";
+import { agentFolder, home } from "./paths.ts";
 import { sessionName } from "./runner.ts";
 import { cleanEnv, run, SOCKET, tmux } from "./tmux.ts";
 
 // ------------------------------------------------------------------ pure parts (tested)
 
-export type TermKind = "agent" | "shell";
+export type TermKind = "agent" | "shell" | "fix";
 
 /** One room per running terminal; this is its name. */
 export const roomName = (kind: TermKind, agentId: string) => `${kind}:${agentId}`;
@@ -82,6 +83,7 @@ export interface Pty {
   resize(cols: number, rows: number): void;
   kill(): void;
   readonly ptsName?: string;
+  readonly pid?: number;
 }
 export type SpawnPty = (file: string, args: string[], opts: { cwd: string; cols: number; rows: number; env: NodeJS.ProcessEnv }) => Pty;
 
@@ -227,6 +229,12 @@ export class TermRooms {
     for (const name of [...this.rooms.keys()]) this.dispose(name);
   }
 
+  /** The program's pid, while it runs. */
+  pidOf(name: string): number {
+    const room = this.rooms.get(name);
+    return room && !room.ended ? room.pty.pid ?? 0 : 0;
+  }
+
   viewerCount(name: string) {
     return this.rooms.get(name)?.viewers.size ?? 0;
   }
@@ -243,6 +251,7 @@ export function agentProgram(session: string, cwd: string): Program {
     args: ["-L", SOCKET, "attach-session", "-t", `=${session}`],
     cwd,
     started: async () => {
+      await tmux.tune(session); // sessions started by older versions get the same settings
       await tm(["set-option", "-t", `=${session}:`, "status", "off"]);
       await tm(["set-option", "-w", "-t", `=${session}:`, "window-size", "latest"]);
     },
@@ -262,6 +271,12 @@ export function shellProgram(cwd: string): Program {
   return { file: "bash", args: ["-l"], cwd };
 }
 
+/** One fix from the setup checklist's fixed list, run once in a login shell. */
+export function fixProgram(command: string): Program {
+  const line = `echo "\$ ${command.replace(/["\\$`]/g, "\\$&")}"; ${command}; code=$?; echo; if [ $code -eq 0 ]; then echo "Done. Press Check again in Workforce."; else echo "That didn't work (exit code $code)."; fi`;
+  return { file: "bash", args: ["-lc", line], cwd: home() };
+}
+
 // ------------------------------------------------------------------ WebSocket routes
 
 export interface TermSupport {
@@ -269,8 +284,7 @@ export interface TermSupport {
   reason: string;
 }
 
-export function registerTerminals(f: FastifyInstance, app: App, spawn: SpawnPty | null, reason: string) {
-  const rooms = spawn ? new TermRooms(spawn) : null;
+export function registerTerminals(f: FastifyInstance, app: App, rooms: TermRooms | null, reason: string) {
   f.addHook("onClose", async () => rooms?.disposeAll());
 
   f.get("/api/terminals", async (): Promise<TermSupport> => ({ available: !!rooms, reason: rooms ? "" : reason || "node-pty is not available" }));
@@ -284,20 +298,28 @@ export function registerTerminals(f: FastifyInstance, app: App, spawn: SpawnPty 
     if (!sameOrigin(req)) return refuse("Wrong origin");
     if (!rooms) return refuse("Live terminals are off on this server");
     const { kind, id } = req.params;
-    if (kind !== "agent" && kind !== "shell") return refuse("Unknown terminal");
-    const agent = app.store.db.agent(id);
-    if (!agent) return refuse("No such agent");
-    const dir = agentDir(agent.projectId, agent.sign);
-    if (!existsSync(dir)) return refuse(`${agent.name}'s folder isn't there yet. Start ${agent.name} once first.`);
-    const session = sessionName(agent);
-    if (kind === "agent" && !(await tmux.exists(session))) return refuse(`${agent.name} is not running. Press Start.`);
+    if (kind !== "agent" && kind !== "shell" && kind !== "fix") return refuse("Unknown terminal");
+    let program: () => Program;
+    if (kind === "fix") {
+      // Only a fix from the fixed list, chosen by id.
+      const fix = setupFix(id);
+      if (!fix) return refuse("Unknown fix");
+      program = () => fixProgram(fixCommand(fix, process.platform));
+    } else {
+      const agent = app.store.db.agent(id);
+      if (!agent) return refuse("No such agent");
+      const dir = agentFolder(agent);
+      if (!existsSync(dir)) return refuse(`${agent.name}'s folder isn't there yet. Start ${agent.name} once first.`);
+      const session = sessionName(agent);
+      if (kind === "agent" && !(await tmux.exists(session))) return refuse(`${agent.name} is not running. Press Start.`);
+      program = () => (kind === "agent" ? agentProgram(session, dir) : shellProgram(dir));
+    }
 
     const name = roomName(kind, id);
     const viewer: Viewer = {
       output: (s) => socket.readyState === socket.OPEN && s && socket.send(Buffer.from(s, "utf8")),
       notice: (m) => say(m),
     };
-    const program = () => (kind === "agent" ? agentProgram(session, dir) : shellProgram(dir));
     const q = req.query as { cols?: string; rows?: string };
     const first = readViewerFrame(JSON.stringify({ op: "size", cols: Number(q.cols), rows: Number(q.rows) }));
     const size = first?.op === "size" ? first : undefined;
@@ -315,7 +337,7 @@ export function registerTerminals(f: FastifyInstance, app: App, spawn: SpawnPty 
       if (frame.op === "keys") rooms.keys(name, frame.data);
       else if (frame.op === "size") rooms.resize(name, frame.cols, frame.rows);
       // "New shell": end this one; everyone watching moves to a fresh one.
-      else if (frame.op === "renew" && kind === "shell") void rooms.renew(name, program, rooms.sizeOf(name));
+      else if (frame.op === "renew" && kind !== "agent") void rooms.renew(name, program, rooms.sizeOf(name));
     });
     const ping = setInterval(() => socket.ping(), 25_000);
     socket.on("close", () => {

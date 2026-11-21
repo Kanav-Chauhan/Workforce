@@ -17,7 +17,7 @@ function setup() {
   const work = new Work(store, courier);
   const hooks = new Hooks(store, courier);
   const projects = new Projects(store);
-  const project: Project = { id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now() };
+  const project: Project = { id: "demo", repo: "me/demo", name: "demo", prefix: "DM", defaultBranch: "main", permissionStyle: "careful", createdAt: now(), stack: [], boards: ["Main"], planExport: false };
   db.addProject(project);
   for (const sign of ["leo", "aries", "virgo"]) projects.addAgent("demo", sign);
   return { db, store, courier, work, hooks, projects, project, typed };

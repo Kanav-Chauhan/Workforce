@@ -17,6 +17,8 @@ export interface HookReply {
 
 export class Hooks {
   private inTurn = new Map<string, boolean>();
+  /** The last hook each agent sent (for the Debug panel). */
+  readonly lastHook = new Map<string, { event: string; at: string }>();
   /** Permission prompts waiting for the owner: need id → resolver. */
   private waiting = new Map<number, (d: Decision | null) => void>();
   /** Called when the owner answers a prompt that only exists on screen (no hook waiting). */
@@ -31,6 +33,7 @@ export class Hooks {
   async handle(token: string, event: string, body: HookBody): Promise<HookReply> {
     const agent = this.db.agentByToken(token);
     if (!agent) return { status: 401 };
+    this.lastHook.set(agent.id, { event, at: new Date().toISOString() });
     this.courier.onHook(agent.id, event);
 
     // Anything the agent does after a prompt means that prompt was answered (in the terminal or here).

@@ -5,8 +5,9 @@
 import { writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Agent, PermissionStyle, Project } from "../shared/types.ts";
-import { agentDir, agentPrivateDir, ensureDir, home, localUrl, projectDir } from "./paths.ts";
+import { stackPlan } from "../shared/stacks.ts";
+import type { Agent, McpServer, PermissionStyle, Project } from "../shared/types.ts";
+import { agentFolder, agentPrivateDir, ensureDir, home, localUrl, projectDir } from "./paths.ts";
 import { signOf } from "./team.ts";
 
 export const MCP_NAME = "workforce";
@@ -19,12 +20,23 @@ export const PERMISSION_WAIT_S = 600;
 
 // ------------------------------------------------------------------ role
 
-export function roleText(agent: Agent, project: Project, team: Agent[]): string {
+/** What the agent is told about its extras: env variable NAMES (never values) and the owner's MCP servers. */
+export interface Extras {
+  envNames: string[];
+  mcp: McpServer[];
+}
+const NO_EXTRAS: Extras = { envNames: [], mcp: [] };
+
+/** A custom agent's sign is its own id, not a zodiac sign. */
+const roleOf = (a: Agent) => a.role || (a.isLead ? "lead" : "developer");
+
+export function roleText(agent: Agent, project: Project, team: Agent[], extras: Extras = NO_EXTRAS): string {
   const me = signOf(agent.sign);
+  const personality = me?.personality ?? (agent.role ? `You are the team's ${agent.role}. Focus on what a good ${agent.role} cares about.` : "");
   const members = team
     .map((a) => {
       const s = signOf(a.sign);
-      return `- ${a.name}${s ? ` ${s.symbol}` : ""}: ${a.isLead ? "lead" : "developer"}${a.id === agent.id ? " ← you" : ""}`;
+      return `- ${a.name}${s ? ` ${s.symbol}` : ""}: ${roleOf(a)}${a.id === agent.id ? " ← you" : ""}`;
     })
     .join("\n");
 
@@ -33,6 +45,7 @@ export function roleText(agent: Agent, project: Project, team: Agent[]): string 
     "When the owner asks for something, read the repo first, then split the work into small tasks: one task = one branch = one pull request.",
     "Create each task with `create_task`: a clear title, the details, the exact files or folders it may edit, a 'done when' the owner can check, and which tasks it depends on.",
     "Two tasks that can run at the same time must never share a file.",
+    "Tasks sit on plan boards (see `tasks`). When the owner names a board or a stage (\"v1\", \"Polish\"), pass it as `board` in `create_task`.",
     "Give tasks with `assign` only to developers who are free (check `team`). A developer whose PR is in review can take the next task.",
     "Put any extra instructions for a task in `assign`'s note. Don't send them as a separate message first: the developer would start before the task is theirs.",
     "When a task goes to review, tell the owner which PRs are ready and the order to merge them in. You never merge.",
@@ -63,7 +76,7 @@ export function roleText(agent: Agent, project: Project, team: Agent[]): string 
     `You work in **Workforce**, a small team of Claude Code agents building the GitHub project **${project.repo}** for its owner.`,
     "",
     "## Your personality",
-    me?.personality ?? "",
+    personality,
     "Your personality shapes your tone and focus only. The rules below always come first.",
     "",
     "## Team",
@@ -79,6 +92,10 @@ export function roleText(agent: Agent, project: Project, team: Agent[]): string 
     agent.isLead
       ? "`team`, `tasks`, `create_task`, `edit_task`, `assign`, `message`, `ask_owner`"
       : "`team`, `tasks`, `my_task`, `report`, `message`, `ask_owner`",
+    ...(extras.mcp.length ? ["", "## Other tools the owner added (MCP servers)", extras.mcp.map((m) => `\`${m.name}\``).join(", ")] : []),
+    ...(extras.envNames.length
+      ? ["", "## Environment variables", `These are set in your shell: ${extras.envNames.map((n) => `\`${n}\``).join(", ")}. Use them by name (e.g. \`$${extras.envNames[0]}\`); never print, log or commit their values.`]
+      : []),
     ...(agent.extraRole.trim() ? ["", "## Extra notes from the owner", agent.extraRole.trim()] : []),
     "",
   ].join("\n");
@@ -110,7 +127,8 @@ export function permissions(style: PermissionStyle, project: Project, agent: Age
   const privatePaths = [
     `${home()}/workforce.db*`,
     `${projectDir(project.id)}/.agents/**`,
-    ...team.filter((a) => a.id !== agent.id).map((a) => `${agentDir(project.id, a.sign)}/**`),
+    `${home()}/env/**`,
+    ...team.filter((a) => a.id !== agent.id).map((a) => `${agentFolder(a)}/**`),
   ];
   const deny = [
     // Never: secrets, other apps' config, Workforce's private files, Docker, root.
@@ -121,7 +139,9 @@ export function permissions(style: PermissionStyle, project: Project, agent: Age
     "Bash(gh pr merge:*)", "Bash(gh repo delete:*)", "Bash(git push --force:*)", "Bash(git push -f:*)",
     `Bash(git push origin ${project.defaultBranch}:*)`, `Bash(git push -u origin ${project.defaultBranch}:*)`, `Bash(git push origin HEAD:${project.defaultBranch}:*)`,
   ];
-  const allow = [`mcp__${MCP_NAME}`, ...(style === "trusted" ? ["Bash"] : SAFE_COMMANDS.map((c) => `Bash(${c}:*)`))];
+  // The stack's docs sites may be read without asking.
+  const docs = stackPlan(project.stack ?? []).domains.map((d) => `WebFetch(domain:${d})`);
+  const allow = [`mcp__${MCP_NAME}`, ...docs, ...(style === "trusted" ? ["Bash"] : SAFE_COMMANDS.map((c) => `Bash(${c}:*)`))];
   return { defaultMode: "acceptEdits", allow, deny };
 }
 
@@ -134,8 +154,18 @@ export function settingsJson(agent: Agent, project: Project, team: Agent[], toke
   return { hooks, permissions: permissions(project.permissionStyle, project, agent, team) };
 }
 
-export function mcpJson(token: string) {
-  return { mcpServers: { [MCP_NAME]: { type: "http", url: `${localUrl()}/mcp`, headers: { Authorization: `Bearer ${token}` } } } };
+/** The team tools plus the owner's servers for this agent. Header values are `${ENV}` references
+ * that Claude Code fills in from the agent's environment, so no secret is ever written here. */
+export function mcpJson(token: string, extra: McpServer[] = []) {
+  const servers: Record<string, unknown> = { [MCP_NAME]: { type: "http", url: `${localUrl()}/mcp`, headers: { Authorization: `Bearer ${token}` } } };
+  for (const m of extra) {
+    if (m.name === MCP_NAME) continue;
+    servers[m.name] =
+      m.kind === "http"
+        ? { type: "http", url: m.url, ...(m.headerName && m.envName ? { headers: { [m.headerName]: `\${${m.envName}}` } } : {}) }
+        : { type: "stdio", command: m.command, args: m.args };
+  }
+  return { mcpServers: servers };
 }
 
 export interface AgentFiles {
@@ -145,12 +175,12 @@ export interface AgentFiles {
 }
 
 /** Writes the three files (owner-only permissions) and returns their paths. */
-export function writeAgentFiles(agent: Agent, project: Project, team: Agent[], token: string): AgentFiles {
+export function writeAgentFiles(agent: Agent, project: Project, team: Agent[], token: string, extras: Extras = NO_EXTRAS): AgentFiles {
   const dir = ensureDir(agentPrivateDir(project.id, agent.sign));
   const files = { role: join(dir, "role.md"), settings: join(dir, "settings.json"), mcp: join(dir, "mcp.json") };
-  writeFileSync(files.role, roleText(agent, project, team), { mode: 0o600 });
+  writeFileSync(files.role, roleText(agent, project, team, extras), { mode: 0o600 });
   writeFileSync(files.settings, JSON.stringify(settingsJson(agent, project, team, token), null, 2) + "\n", { mode: 0o600 });
-  writeFileSync(files.mcp, JSON.stringify(mcpJson(token), null, 2) + "\n", { mode: 0o600 });
+  writeFileSync(files.mcp, JSON.stringify(mcpJson(token, extras.mcp), null, 2) + "\n", { mode: 0o600 });
   return files;
 }
 

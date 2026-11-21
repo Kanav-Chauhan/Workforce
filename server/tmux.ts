@@ -44,6 +44,26 @@ export const tmux = {
     if (!r.ok) throw new Error(`tmux could not start ${name}: ${r.stderr.trim()}`);
     await tm(["set-option", "-t", target(name), "remain-on-exit", "on"]);
     await tm(["set-option", "-t", target(name), "history-limit", "20000"]);
+    await this.tune(name);
+  },
+
+  /** Settings for watching from the browser: no prefix key (Ctrl+B reaches Claude Code), and the
+   * mouse wheel scrolls back through history (tmux copy mode; Esc or scrolling to the end leaves it). */
+  async tune(name: string) {
+    await tm(["set-option", "-t", target(name), "prefix", "None"]);
+    await tm(["set-option", "-t", target(name), "prefix2", "None"]);
+    await tm(["set-option", "-t", target(name), "mouse", "on"]);
+    await tm(["set-option", "-w", "-t", target(name), "mode-keys", "emacs"]);
+  },
+
+  async list(): Promise<string[]> {
+    const r = await tm(["list-sessions", "-F", "#{session_name}"]);
+    return r.ok ? r.stdout.split("\n").filter(Boolean) : [];
+  },
+
+  async panePid(name: string): Promise<number> {
+    const r = await tm(["display-message", "-p", "-t", target(name), "#{pane_pid}"]);
+    return r.ok ? Number(r.stdout.trim()) || 0 : 0;
   },
 
   async kill(name: string) {

@@ -6,6 +6,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import type { Agent } from "../shared/types.ts";
+import { boardOf, boardsOf } from "../shared/boards.ts";
 import { MCP_NAME } from "./agentFiles.ts";
 import type { Store } from "./store.ts";
 import type { Work } from "./work.ts";
@@ -31,8 +32,9 @@ function server(store: Store, work: Work, me: Agent): McpServer {
   const leadOnly = () => {
     if (!me.isLead) throw new Error("Only the lead can do that. Ask the lead with the message tool.");
   };
+  const boards = () => boardsOf(db.project(me.projectId) ?? { boards: [] }, db.tasks(me.projectId));
   const taskView = (t: ReturnType<typeof db.tasks>[number]) => ({
-    id: t.id, title: t.title, status: t.status, owner: t.ownerId ? store.nameOf(t.ownerId) : null, phase: t.phase || undefined,
+    id: t.id, title: t.title, status: t.status, owner: t.ownerId ? store.nameOf(t.ownerId) : null, board: boardOf(t, boards()),
     dependsOn: t.dependsOn.length ? t.dependsOn : undefined, pr: t.prNumber ?? undefined,
   });
 
@@ -43,15 +45,18 @@ function server(store: Store, work: Work, me: Agent): McpServer {
   s.registerTool(
     "tasks",
     {
-      description: "List the project's tasks. Optional filters: status (todo, working, review, blocked, done), owner (a name), phase.",
-      inputSchema: { status: z.string().optional(), owner: z.string().optional(), phase: z.string().optional() },
+      description: "List the project's tasks. Optional filters: status (todo, working, review, blocked, done), owner (a name), board (a plan board's name). Also lists the project's boards.",
+      inputSchema: { status: z.string().optional(), owner: z.string().optional(), board: z.string().optional(), phase: z.string().optional().describe("Old name for board") },
     },
-    safe(({ status, owner, phase }: { status?: string; owner?: string; phase?: string }) => {
+    safe(({ status, owner, board, phase }: { status?: string; owner?: string; board?: string; phase?: string }) => {
       const ownerId = owner ? work.findAgent(me.projectId, owner)?.id ?? "-" : null;
-      return db
+      const want = (board ?? phase ?? "").trim().toLowerCase();
+      const all = boards();
+      const tasks = db
         .tasks(me.projectId)
-        .filter((t) => (!status || t.status === status) && (!ownerId || t.ownerId === ownerId) && (!phase || t.phase.toLowerCase() === phase.toLowerCase()))
+        .filter((t) => (!status || t.status === status) && (!ownerId || t.ownerId === ownerId) && (!want || boardOf(t, all).toLowerCase() === want))
         .map(taskView);
+      return { boards: all, tasks };
     }),
   );
 
@@ -65,10 +70,11 @@ function server(store: Store, work: Work, me: Agent): McpServer {
         files: z.array(z.string()).optional().describe("The only files or folders this task may edit"),
         doneWhen: z.string().optional().describe("Checks the owner can run or click"),
         dependsOn: z.array(z.string()).optional().describe("Task ids that must be finished first"),
-        phase: z.string().optional(),
+        board: z.string().optional().describe("Plan board to put it on (e.g. 'v1', 'Polish'); a new name makes a new board. Default: the first board."),
+        phase: z.string().optional().describe("Old name for board"),
       },
     },
-    safe((a: { title: string; details?: string; files?: string[]; doneWhen?: string; dependsOn?: string[]; phase?: string }) => {
+    safe((a: { title: string; details?: string; files?: string[]; doneWhen?: string; dependsOn?: string[]; phase?: string; board?: string }) => {
       leadOnly();
       return taskView(work.createTask(me.projectId, a, me.id));
     }),
@@ -85,11 +91,12 @@ function server(store: Store, work: Work, me: Agent): McpServer {
         files: z.array(z.string()).optional(),
         doneWhen: z.string().optional(),
         dependsOn: z.array(z.string()).optional(),
-        phase: z.string().optional(),
+        board: z.string().optional().describe("Move it to this plan board"),
+        phase: z.string().optional().describe("Old name for board"),
         status: z.enum(["todo", "working", "review", "blocked", "done"]).optional(),
       },
     },
-    safe(({ id, ...patch }: { id: string; title?: string; details?: string; files?: string[]; doneWhen?: string; dependsOn?: string[]; phase?: string; status?: "todo" | "working" | "review" | "blocked" | "done" }) => {
+    safe(({ id, ...patch }: { id: string; title?: string; details?: string; files?: string[]; doneWhen?: string; dependsOn?: string[]; phase?: string; board?: string; status?: "todo" | "working" | "review" | "blocked" | "done" }) => {
       leadOnly();
       return taskView(work.editTask(me.projectId, id, patch));
     }),
@@ -114,7 +121,7 @@ function server(store: Store, work: Work, me: Agent): McpServer {
   s.registerTool("my_task", { description: "Your current task in full: details, the files you may edit, done-when and dependencies. Marks it as working." }, safe(() => {
     const t = work.myTask(me.id);
     if (!t) return "You have no task right now. Wait for the lead, or ask them with the message tool.";
-    return { id: t.id, title: t.title, details: t.details, files: t.files, doneWhen: t.doneWhen, dependsOn: t.dependsOn, phase: t.phase, branchHint: t.id.toLowerCase() };
+    return { id: t.id, title: t.title, details: t.details, files: t.files, doneWhen: t.doneWhen, dependsOn: t.dependsOn, board: boardOf(t, boards()), branchHint: t.id.toLowerCase() };
   }));
 
   s.registerTool(

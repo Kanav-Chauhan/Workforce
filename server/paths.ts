@@ -12,6 +12,15 @@ export const agentDir = (projectId: string, sign: string) => join(projectDir(pro
 /** The agent's private files (role, settings, MCP config). Never inside the clone. */
 export const agentPrivateDir = (projectId: string, sign: string) => join(projectDir(projectId), ".agents", sign);
 
+/** Where an agent works: its own folder if the owner gave one, else Workforce's clone. */
+export const agentFolder = (a: { projectId: string; sign: string; folder?: string }) => a.folder || agentDir(a.projectId, a.sign);
+/** The agent's stack skills, loaded as a local plugin (--plugin-dir). Inside its folder, git-excluded. */
+export const stackPluginDir = (a: { projectId: string; sign: string; folder?: string }) => join(agentFolder(a), ".claude", "workforce-stack");
+/** Per-agent environment files (600), never inside a repo. */
+export const envFile = (agentId: string) => join(home(), "env", `${agentId}.env`);
+/** Shallow clones of the vendors' official skill repos. */
+export const skillCacheDir = () => join(home(), "cache", "skills");
+
 export function ensureDir(dir: string) {
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;

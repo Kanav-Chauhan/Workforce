@@ -2,7 +2,7 @@
 // Small typed helpers per table; every change goes through `store` so it can be broadcast.
 
 import { DatabaseSync } from "node:sqlite";
-import type { Activity, Agent, AgentState, Message, Need, NeedKind, PermissionStyle, Project, Task, TaskStatus } from "../shared/types.ts";
+import type { Activity, Agent, AgentState, McpServer, Message, Need, NeedKind, PermissionStyle, Project, Task, TaskStatus } from "../shared/types.ts";
 import { dbFile, ensureDir, home } from "./paths.ts";
 
 const SCHEMA = `
@@ -37,7 +37,22 @@ CREATE TABLE IF NOT EXISTS activity (
   id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT NOT NULL, agent_id TEXT, text TEXT NOT NULL, at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, kind TEXT NOT NULL, command TEXT NOT NULL DEFAULT '',
+  args TEXT NOT NULL DEFAULT '[]', url TEXT NOT NULL DEFAULT '', header_name TEXT NOT NULL DEFAULT '', env_name TEXT NOT NULL DEFAULT '',
+  agent_ids TEXT NOT NULL DEFAULT '[]'
+);
 `;
+
+/** Columns added after the first release: added to older databases on open. */
+const ADDED_COLUMNS: [table: string, column: string, type: string][] = [
+  ["projects", "stack", "TEXT NOT NULL DEFAULT '[]'"],
+  ["projects", "boards", "TEXT NOT NULL DEFAULT '[]'"],
+  ["projects", "plan_export", "INTEGER NOT NULL DEFAULT 0"],
+  ["agents", "role", "TEXT NOT NULL DEFAULT ''"],
+  ["agents", "color", "TEXT NOT NULL DEFAULT ''"],
+  ["agents", "folder", "TEXT NOT NULL DEFAULT ''"],
+];
 
 export const now = () => new Date().toISOString();
 
@@ -54,10 +69,11 @@ const json = <T>(v: unknown, fallback: T): T => {
 const toProject = (r: Row): Project => ({
   id: s(r.id), repo: s(r.repo), name: s(r.name), prefix: s(r.prefix), defaultBranch: s(r.default_branch),
   permissionStyle: s(r.permission_style) as PermissionStyle, createdAt: s(r.created_at),
+  stack: json(r.stack, []), boards: json(r.boards, []), planExport: !!r.plan_export,
 });
 const toAgent = (r: Row): Agent => ({
   id: s(r.id), projectId: s(r.project_id), sign: s(r.sign), name: s(r.name), isLead: !!r.is_lead,
-  extraRole: s(r.extra_role), model: s(r.model), sessionId: s(r.session_id), state: s(r.state) as AgentState,
+  extraRole: s(r.extra_role), model: s(r.model), role: s(r.role), color: s(r.color), folder: s(r.folder), sessionId: s(r.session_id), state: s(r.state) as AgentState,
   note: s(r.note), taskId: r.task_id == null ? null : s(r.task_id), stateSince: s(r.state_since),
 });
 const toTask = (r: Row): Task => ({
@@ -73,6 +89,10 @@ const toNeed = (r: Row): Need => ({
   id: Number(r.id), projectId: s(r.project_id), agentId: r.agent_id == null ? null : s(r.agent_id), kind: s(r.kind) as NeedKind,
   title: s(r.title), details: s(r.details), status: s(r.status) as Need["status"], answer: s(r.answer), at: s(r.at),
 });
+const toMcp = (r: Row): McpServer => ({
+  id: Number(r.id), name: s(r.name), kind: s(r.kind) === "http" ? "http" : "stdio", command: s(r.command), args: json(r.args, []),
+  url: s(r.url), headerName: s(r.header_name), envName: s(r.env_name), agentIds: json(r.agent_ids, []),
+});
 const toActivity = (r: Row): Activity => ({ id: Number(r.id), projectId: s(r.project_id), agentId: r.agent_id == null ? null : s(r.agent_id), text: s(r.text), at: s(r.at) });
 
 export class Db {
@@ -83,6 +103,10 @@ export class Db {
     this.sql = new DatabaseSync(file);
     this.sql.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;");
     this.sql.exec(SCHEMA);
+    for (const [table, column, type] of ADDED_COLUMNS) {
+      const has = (this.sql.prepare(`PRAGMA table_info(${table})`).all() as Row[]).some((c) => c.name === column);
+      if (!has) this.sql.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+    }
   }
 
   private all(q: string, ...p: (string | number | null)[]) {
@@ -106,12 +130,18 @@ export class Db {
   }
   addProject(p: Project) {
     this.run(
-      "INSERT INTO projects (id, repo, name, prefix, default_branch, permission_style, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      p.id, p.repo, p.name, p.prefix, p.defaultBranch, p.permissionStyle, p.createdAt,
+      "INSERT INTO projects (id, repo, name, prefix, default_branch, permission_style, created_at, stack, boards, plan_export) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      p.id, p.repo, p.name, p.prefix, p.defaultBranch, p.permissionStyle, p.createdAt, JSON.stringify(p.stack), JSON.stringify(p.boards), p.planExport ? 1 : 0,
     );
   }
   setPermissionStyle(id: string, style: PermissionStyle) {
     this.run("UPDATE projects SET permission_style = ? WHERE id = ?", style, id);
+  }
+  updateProject(id: string, patch: Partial<Pick<Project, "stack" | "boards" | "planExport" | "permissionStyle">>) {
+    if (patch.stack) this.run("UPDATE projects SET stack = ? WHERE id = ?", JSON.stringify(patch.stack), id);
+    if (patch.boards) this.run("UPDATE projects SET boards = ? WHERE id = ?", JSON.stringify(patch.boards), id);
+    if (patch.planExport !== undefined) this.run("UPDATE projects SET plan_export = ? WHERE id = ?", patch.planExport ? 1 : 0, id);
+    if (patch.permissionStyle) this.setPermissionStyle(id, patch.permissionStyle);
   }
   /** Next task number for a project (WS-1, WS-2, …). */
   nextTaskNumber(projectId: string): number {
@@ -141,8 +171,8 @@ export class Db {
   }
   addAgent(a: Agent, token: string) {
     this.run(
-      "INSERT INTO agents (id, project_id, sign, name, is_lead, extra_role, model, session_id, token, state, note, task_id, state_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      a.id, a.projectId, a.sign, a.name, a.isLead ? 1 : 0, a.extraRole, a.model, a.sessionId, token, a.state, a.note, a.taskId, a.stateSince,
+      "INSERT INTO agents (id, project_id, sign, name, is_lead, extra_role, model, role, color, folder, session_id, token, state, note, task_id, state_since) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      a.id, a.projectId, a.sign, a.name, a.isLead ? 1 : 0, a.extraRole, a.model, a.role, a.color, a.folder, a.sessionId, token, a.state, a.note, a.taskId, a.stateSince,
     );
   }
   updateAgent(id: string, patch: Partial<Pick<Agent, "state" | "note" | "taskId" | "stateSince" | "extraRole" | "model" | "name" | "sessionId">>) {
@@ -155,6 +185,27 @@ export class Db {
   }
   removeAgent(id: string) {
     this.run("DELETE FROM agents WHERE id = ?", id);
+    this.run("UPDATE tasks SET owner_id = NULL, status = CASE WHEN status IN ('working', 'blocked') THEN 'todo' ELSE status END WHERE owner_id = ?", id);
+    for (const m of this.mcpServers()) if (m.agentIds.includes(id)) this.saveMcpServer({ ...m, agentIds: m.agentIds.filter((x) => x !== id) });
+  }
+
+  // -------------------------------------------------------------- extra MCP servers
+
+  mcpServers(): McpServer[] {
+    return this.all("SELECT * FROM mcp_servers ORDER BY name").map(toMcp);
+  }
+  /** Adds (id 0) or replaces a server; returns it with its id. */
+  saveMcpServer(m: McpServer): McpServer {
+    const vals = [m.name, m.kind, m.command, JSON.stringify(m.args), m.url, m.headerName, m.envName, JSON.stringify(m.agentIds)] as const;
+    if (m.id) {
+      this.run("UPDATE mcp_servers SET name = ?, kind = ?, command = ?, args = ?, url = ?, header_name = ?, env_name = ?, agent_ids = ? WHERE id = ?", ...vals, m.id);
+      return m;
+    }
+    const r = this.run("INSERT INTO mcp_servers (name, kind, command, args, url, header_name, env_name, agent_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", ...vals);
+    return { ...m, id: Number(r.lastInsertRowid) };
+  }
+  removeMcpServer(id: number) {
+    this.run("DELETE FROM mcp_servers WHERE id = ?", id);
   }
 
   // -------------------------------------------------------------- tasks

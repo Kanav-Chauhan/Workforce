@@ -2,12 +2,15 @@
 // working in its own clone, with its private files passed on the command line.
 
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import type { Agent } from "../shared/types.ts";
 import { transcriptFile, writeAgentFiles } from "./agentFiles.ts";
 import type { Courier } from "./courier.ts";
 import type { Hooks } from "./hooks.ts";
-import { agentDir, ensureDir, projectDir } from "./paths.ts";
+import { envFileFor, envNames, removeEnvFile } from "./env.ts";
+import { agentFolder, agentPrivateDir, ensureDir, projectDir } from "./paths.ts";
+import { ensureSkillRepo, installStackFor, stackPluginFor } from "./stack.ts";
+import { stackPlan } from "../shared/stacks.ts";
 import type { Store } from "./store.ts";
 import { run, shellQuote, tmux } from "./tmux.ts";
 
@@ -47,8 +50,9 @@ export class Runner {
   /** Clones the repo into the agent's folder if it isn't there yet. */
   async ensureClone(agent: Agent): Promise<string> {
     const project = this.db.project(agent.projectId)!;
-    const dir = agentDir(project.id, agent.sign);
+    const dir = agentFolder(agent);
     if (existsSync(dir)) return dir;
+    if (agent.folder) throw new Error(`Its folder ${agent.folder} is missing`);
     ensureDir(projectDir(project.id));
     this.store.updateAgent(agent.id, { note: "Cloning the repo…" });
     const r = await run("gh", ["repo", "clone", project.repo, dir, "--", "--quiet"], { timeoutMs: 600_000 });
@@ -65,7 +69,12 @@ export class Runner {
     try {
       const project = this.db.project(agent.projectId)!;
       const dir = await this.ensureClone(agent);
-      const files = writeAgentFiles(agent, project, this.db.agents(project.id), this.db.agentToken(agent.id));
+      // Stack skills: download what's missing, then put them in the agent's folder.
+      for (const repo of new Set(stackPlan(project.stack).skills.map((x) => x.repo))) await ensureSkillRepo(repo).catch(() => {});
+      installStackFor(agent, project);
+      const plugin = stackPluginFor(agent);
+      const mcp = this.db.mcpServers().filter((m) => m.agentIds.includes(agent.id));
+      const files = writeAgentFiles(agent, project, this.db.agents(project.id), this.db.agentToken(agent.id), { envNames: envNames(agent.id), mcp });
       // Same conversation after a restart if Claude Code saved one; a fresh id otherwise.
       let sessionId = agent.sessionId;
       const resume = existsSync(transcriptFile(dir, sessionId));
@@ -82,11 +91,15 @@ export class Runner {
         "--setting-sources", "local",
         "--settings", files.settings,
         "--mcp-config", files.mcp, "--strict-mcp-config",
+        ...(plugin ? ["--plugin-dir", plugin] : []),
         ...(agent.model ? ["--model", agent.model] : []),
       ];
+      // The agent's environment file is sourced by the shell, so values never appear in a command line.
+      const envFile = envFileFor(agent.id);
+      const line = args.map(shellQuote).join(" ");
       this.courier.markOffline(agent.id);
       this.hooks.forgetTurn(agent.id);
-      await tmux.start(name, dir, args.map(shellQuote).join(" "));
+      await tmux.start(name, dir, envFile ? `set -a; . ${shellQuote(envFile)}; set +a; exec ${line}` : line);
       this.store.updateAgent(agent.id, { state: "ready", note: resume ? "Resuming…" : "Starting…" });
       this.store.activity(project.id, agent.id, `${agent.name} started${resume ? " (same conversation as before)" : ""}`);
     } catch (err) {
@@ -106,6 +119,25 @@ export class Runner {
     this.hooks.forgetTurn(agent.id);
     this.store.updateAgent(agent.id, { state: "off", note: "Stopped" });
     this.store.activity(agent.projectId, agent.id, `${agent.name} stopped`);
+  }
+
+  /** Takes an agent off the team: stops it, forgets it, and deletes its folder if asked
+   * (only Workforce's own clone, never a folder the owner pointed it at). */
+  async remove(agentId: string, deleteFolder: boolean) {
+    const agent = this.db.agent(agentId);
+    if (!agent) throw new Error("No such agent");
+    if (agent.isLead) throw new Error("The lead can't be removed");
+    await tmux.kill(sessionName(agent));
+    this.courier.markOffline(agent.id);
+    this.hooks.forgetTurn(agent.id);
+    const owned = this.db.tasks(agent.projectId).filter((t) => t.ownerId === agent.id);
+    this.db.removeAgent(agent.id);
+    for (const t of owned) this.store.emit({ type: "task", task: this.db.task(t.id)! });
+    removeEnvFile(agent.id);
+    rmSync(agentPrivateDir(agent.projectId, agent.sign), { recursive: true, force: true });
+    if (deleteFolder && !agent.folder) rmSync(agentFolder(agent), { recursive: true, force: true });
+    this.store.emit({ type: "agentRemoved", id: agent.id, projectId: agent.projectId });
+    this.store.activity(agent.projectId, null, `${agent.name} left the team${deleteFolder && !agent.folder ? " (folder deleted)" : ""}`);
   }
 
   async restart(agentId: string) {

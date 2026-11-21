@@ -1,7 +1,7 @@
 // The HTTP server: hooks and MCP for agents (local only), and the owner's API.
 // Behind Caddy, only /api and the dashboard are reachable; /hook and /mcp refuse forwarded requests.
 
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import fastifyStatic from "@fastify/static";
@@ -9,7 +9,15 @@ import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { App } from "./app.ts";
 import { registerLive } from "./live.ts";
-import { registerTerminals, type SpawnPty } from "./terminals.ts";
+import { STACK } from "../shared/stacks.ts";
+import type { McpServer, PermissionStyle } from "../shared/types.ts";
+import { MCP_NAME } from "./agentFiles.ts";
+import { checkEnvName, envNames, setEnv, unsetEnv } from "./env.ts";
+import { planFile } from "./planExport.ts";
+import { openPorts } from "./ports.ts";
+import { runChecks } from "./setup.ts";
+import { applyStack, type StackReport } from "./stack.ts";
+import { roomName, registerTerminals, TermRooms, type SpawnPty } from "./terminals.ts";
 import { handleMcp } from "./mcp.ts";
 import { sessionName } from "./runner.ts";
 import { tmux } from "./tmux.ts";
@@ -32,7 +40,8 @@ export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: strin
 
   f.register(fastifyWebsocket, { options: { maxPayload: 64 * 1024 } });
   f.register(async (scope) => registerLive(scope, app));
-  f.register(async (scope) => registerTerminals(scope, app, pty.spawn, pty.reason));
+  const rooms = pty.spawn ? new TermRooms(pty.spawn) : null;
+  f.register(async (scope) => registerTerminals(scope, app, rooms, pty.reason));
 
   // Errors from our own rules become a 400 with a readable message.
   f.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
@@ -74,9 +83,160 @@ export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: strin
     messages: db.messages(req.params.id),
   }));
 
-  f.post<{ Body: { repo: string } }>("/api/projects", async (req) => projects.add(String(req.body?.repo ?? "")));
+  f.post<{ Body: { repo: string; workers?: number; permissionStyle?: PermissionStyle } }>("/api/projects", async (req) =>
+    projects.add(String(req.body?.repo ?? ""), { workers: Number(req.body?.workers) || undefined, permissionStyle: req.body?.permissionStyle }),
+  );
 
-  f.post<{ Params: { id: string }; Body: { sign?: string } }>("/api/projects/:id/agents", async (req) => projects.addAgent(req.params.id, req.body?.sign));
+  const mustProject = (id: string) => {
+    const p = db.project(id);
+    if (!p) throw Object.assign(new Error("No such project"), { statusCode: 404 });
+    return p;
+  };
+
+  // Project settings: permission style and plan export.
+  f.patch<{ Params: { id: string }; Body: { permissionStyle?: string; planExport?: boolean } }>("/api/projects/:id", async (req) => {
+    mustProject(req.params.id);
+    const b = req.body ?? {};
+    if (b.permissionStyle !== undefined && b.permissionStyle !== "careful" && b.permissionStyle !== "trusted") throw new Error("Use careful or trusted");
+    db.updateProject(req.params.id, { permissionStyle: b.permissionStyle as PermissionStyle | undefined, planExport: typeof b.planExport === "boolean" ? b.planExport : undefined });
+    const project = db.project(req.params.id)!;
+    store.emit({ type: "project", project });
+    return project;
+  });
+
+  f.get<{ Params: { id: string } }>("/api/projects/:id/plan-export", async (req) => {
+    const project = mustProject(req.params.id);
+    const lead = db.agents(project.id).find((a) => a.isLead);
+    const written = project.planExport ? app.planExport.write(project.id) : null;
+    return { on: project.planExport, path: lead ? planFile(lead) : null, written: !!written };
+  });
+
+  f.post<{ Params: { id: string }; Body: { name: string } }>("/api/projects/:id/boards", async (req) => ({ name: work.addBoard(req.params.id, String(req.body?.name ?? "")) }));
+  f.delete<{ Params: { id: string; name: string } }>("/api/projects/:id/boards/:name", async (req) => (work.removeBoard(req.params.id, req.params.name), { ok: true }));
+
+  f.post<{ Params: { id: string }; Body: { sign?: string; custom?: { name: string; role: string; color?: string; model?: string; folder?: string } } }>("/api/projects/:id/agents", async (req) =>
+    req.body?.custom ? projects.addCustom(req.params.id, req.body.custom) : projects.addAgent(req.params.id, req.body?.sign),
+  );
+
+  f.delete<{ Params: { id: string }; Querystring: { deleteFolder?: string } }>("/api/agents/:id", async (req, reply) => {
+    const a = db.agent(req.params.id);
+    if (!a) return reply.code(404).send({ error: "No such agent" });
+    for (const kind of ["agent", "shell"] as const) rooms?.dispose(roomName(kind, a.id));
+    await runner.remove(a.id, req.query.deleteFolder === "1");
+    return { ok: true };
+  });
+
+  // ------------------------------------------------------------ office, setup, debug
+
+  f.post<{ Body: { name: string } }>("/api/office", async (req) => {
+    const name = String(req.body?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+    db.setSetting("office_name", name);
+    store.emit({ type: "office", office: { name } });
+    return { name };
+  });
+
+  f.get("/api/setup", async () => ({ checks: await runChecks(), platform: process.platform, terminals: !!rooms }));
+
+  f.get("/api/debug", async () => {
+    const pkg = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")) as { version: string };
+    return {
+      version: pkg.version,
+      node: process.versions.node,
+      uptimeS: Math.round((Date.now() - app.startedAt) / 1000),
+      pid: process.pid,
+      tmuxSessions: await tmux.list(),
+      liveTerminals: !!rooms,
+      lastHooks: db.agents().map((a) => ({ agentId: a.id, name: a.name, projectId: a.projectId, ...(hooks.lastHook.get(a.id) ?? { event: null, at: null }) })),
+    };
+  });
+
+  // ------------------------------------------------------------ stack picker
+
+  const reportKey = (id: string) => `stack_report:${id}`;
+  f.get<{ Params: { id: string } }>("/api/projects/:id/stack", async (req) => {
+    const project = mustProject(req.params.id);
+    const saved = db.setting(reportKey(project.id));
+    return { stack: project.stack, report: saved ? (JSON.parse(saved) as StackReport) : null };
+  });
+
+  f.post<{ Params: { id: string }; Body: { tools: string[] } }>("/api/projects/:id/stack", async (req) => {
+    mustProject(req.params.id);
+    const tools = [...new Set((req.body?.tools ?? []).map(String))].filter((t) => STACK.some((x) => x.id === t));
+    db.updateProject(req.params.id, { stack: tools });
+    const project = db.project(req.params.id)!;
+    store.emit({ type: "project", project });
+    const report = await applyStack(project, db.agents(project.id));
+    db.setSetting(reportKey(project.id), JSON.stringify(report));
+    store.activity(project.id, null, `Stack set: ${tools.map((t) => STACK.find((x) => x.id === t)!.label).join(", ") || "nothing"}`);
+    return { stack: tools, report };
+  });
+
+  // ------------------------------------------------------------ MCP servers
+
+  f.get("/api/mcp", async () => ({ servers: db.mcpServers() }));
+
+  f.post<{ Body: Partial<McpServer> }>("/api/mcp", async (req) => {
+    const b = req.body ?? {};
+    const name = String(b.name ?? "").trim();
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(name)) throw new Error("Name: letters, digits, - and _ only");
+    if (name.toLowerCase() === MCP_NAME) throw new Error(`"${MCP_NAME}" is the team tools' name`);
+    const kind = b.kind === "http" ? "http" : "stdio";
+    const server: McpServer = {
+      id: Number(b.id) || 0, name, kind, command: "", args: [], url: "", headerName: "", envName: "",
+      agentIds: (b.agentIds ?? []).map(String).filter((id) => db.agent(id)),
+    };
+    if (kind === "stdio") {
+      server.command = String(b.command ?? "").trim();
+      if (!server.command) throw new Error("Give the command to run, like npx");
+      server.args = (b.args ?? []).map(String).filter(Boolean).slice(0, 30);
+    } else {
+      server.url = String(b.url ?? "").trim();
+      if (!/^https?:\/\/\S+$/.test(server.url)) throw new Error("Give the server's URL (http or https)");
+      server.headerName = String(b.headerName ?? "").trim();
+      server.envName = String(b.envName ?? "").trim();
+      if (server.headerName && !/^[A-Za-z0-9-]{1,60}$/.test(server.headerName)) throw new Error("Header name: letters, digits and - only");
+      if (server.headerName) server.envName = checkEnvName(server.envName);
+      else server.envName = "";
+    }
+    if (db.mcpServers().some((m) => m.name.toLowerCase() === name.toLowerCase() && m.id !== server.id)) throw new Error(`There is already a server called ${name}`);
+    return db.saveMcpServer(server);
+  });
+
+  f.delete<{ Params: { id: string } }>("/api/mcp/:id", async (req) => (db.removeMcpServer(Number(req.params.id)), { ok: true }));
+
+  // ------------------------------------------------------------ environment (names only, ever)
+
+  const envView = (agentId: string) => {
+    const set = envNames(agentId);
+    const wanted = db.mcpServers().filter((m) => m.agentIds.includes(agentId) && m.envName).map((m) => m.envName);
+    const names = [...new Set([...set, ...wanted])].sort();
+    return { vars: names.map((name) => ({ name, set: set.includes(name), neededBy: db.mcpServers().filter((m) => m.envName === name && m.agentIds.includes(agentId)).map((m) => m.name) })) };
+  };
+  const mustAgent = (id: string) => {
+    if (!db.agent(id)) throw Object.assign(new Error("No such agent"), { statusCode: 404 });
+    return id;
+  };
+  f.get<{ Params: { id: string } }>("/api/agents/:id/env", async (req) => envView(mustAgent(req.params.id)));
+  f.post<{ Params: { id: string }; Body: { name: string; value: string } }>("/api/agents/:id/env", async (req) => {
+    setEnv(mustAgent(req.params.id), String(req.body?.name ?? ""), String(req.body?.value ?? ""));
+    return envView(req.params.id);
+  });
+  f.delete<{ Params: { id: string; name: string } }>("/api/agents/:id/env/:name", async (req) => {
+    unsetEnv(mustAgent(req.params.id), req.params.name);
+    return envView(req.params.id);
+  });
+
+  // ------------------------------------------------------------ ports
+
+  f.get<{ Params: { id: string } }>("/api/projects/:id/ports", async (req) => {
+    mustProject(req.params.id);
+    const team = db.agents(req.params.id).filter((a) => a.state !== "off");
+    const ports = await openPorts(team, sessionName, (agentId) => [rooms?.pidOf(roomName("shell", agentId)) ?? 0].filter(Boolean));
+    // Behind a proxy (the VPS), localhost links would point at the viewer's own machine.
+    const host = String(req.headers["x-forwarded-host"] ?? req.headers.host ?? "");
+    const local = !req.headers["x-forwarded-for"] && /^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(host);
+    return { ports, local };
+  });
 
   f.post<{ Params: { id: string; action: string } }>("/api/projects/:id/team/:action", async (req, reply) => {
     const team = db.agents(req.params.id);

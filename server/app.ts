@@ -3,6 +3,7 @@
 import { Db } from "./db.ts";
 import { Courier } from "./courier.ts";
 import { Hooks } from "./hooks.ts";
+import { PlanExport } from "./planExport.ts";
 import { Projects } from "./projects.ts";
 import { Runner, sessionName } from "./runner.ts";
 import { Store } from "./store.ts";
@@ -17,6 +18,8 @@ export interface App {
   hooks: Hooks;
   runner: Runner;
   projects: Projects;
+  planExport: PlanExport;
+  startedAt: number;
 }
 
 export function createApp(db = new Db()): App {
@@ -48,5 +51,6 @@ export function createApp(db = new Db()): App {
   const hooks = new Hooks(store, courier);
   const runner = new Runner(store, courier, hooks);
   const projects = new Projects(store);
-  return { store, courier, work, hooks, runner, projects };
+  const planExport = new PlanExport(store);
+  return { store, courier, work, hooks, runner, projects, planExport, startedAt: Date.now() };
 }
