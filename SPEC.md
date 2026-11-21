@@ -46,7 +46,7 @@ Design is chosen with you **before Phase 2** (no game look). Content:
 | **Project** (main) | **Needs you** bar at the top · **Team**: a card per agent (name, role, status, current task, last action) · **Board**: To do / Working / Review / Done · **Activity** feed · **Message the lead** box. |
 | **Agent panel** (click a card) | Live **terminal** (watch and type) · its **task** · its **messages** · Start / Stop / Restart. |
 | **Task panel** (click a task) | Description, files it may touch, done-when, owner, PR link and review state, history. |
-| **Settings** | Per project: team (add/remove agents, name, role text, model) and permission style (§8). Global: password, usage limit. |
+| **Settings** | Per project: team (add/remove agents, name, role text, model) and permission style (§8). Global: password, usage limit (default 90%). |
 | **Usage** (top bar) | Weekly Claude usage % and a **Pause team** button. |
 
 Works on a phone: the Needs-you bar and team cards come first, the terminal opens full-screen.
@@ -142,7 +142,7 @@ Uses the VPS's existing `gh` login. Agents push with the same login.
 
 Reads the weekly Claude usage that Claude Code's status line already saves (`~/.claude/state/statusline-last.json`, used by your `week-limit.sh`).
 - Shown in the top bar.
-- At your limit (default **70%**), Workforce **pauses**: no new messages or assignments are delivered, and the lead and workers are told to stop after their current step. **Resume** is one click.
+- At your limit (default **90%**), Workforce **pauses**: no new messages or assignments are delivered, and the lead and workers are told to stop after their current step. **Resume** is one click.
 
 ## 12. Data
 

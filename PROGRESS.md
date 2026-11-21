@@ -2,7 +2,7 @@
 
 ## ▶ RESUME HERE
 
-**LIVE STATUS (2026-11-21):** SPEC approved 2026-11-21 (zodiac team: Simha/Leo lead, Mesha + Kanya workers; p7 uses the p5 Caddy login). Phase 1 (engine) in progress.
+**LIVE STATUS (2026-11-21):** SPEC approved 2026-11-21 (zodiac team: Simha/Leo lead, Mesha + Kanya workers; p7 uses the p5 Caddy login). Phase 1 (engine) in progress: server code written + 18 unit tests pass; next: live test on a private test repo.
 
 - Session: `701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`, transcript `~/.claude/projects/-home-north/701b5a1a-8ee7-4692-9a98-0c2c50ed80b8.jsonl`
 - Resume: `cd ~ && claude --resume 701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`
@@ -32,3 +32,4 @@
 - 2026-11-21: read their server (main, hub, sessions, tmux backend, agentFiles, adapters, hooks, inbox, planner, mcp, githubSync, actionItems, http, paths, store). `STUDY.md` written.
 - 2026-11-21: confirmed Claude Code 2.1.330 has PermissionRequest hooks, --settings, --append-system-prompt-file, --mcp-config, --session-id; Node 24 has node:sqlite. `SPEC.md` written.
 - 2026-11-21: owner approved SPEC with changes: zodiac team names, p7 login = p5 Caddy basic_auth, Claude Code only, no sandboxes/Windows/multi-user/auto-merge in v1.
+- 2026-11-21: engine written (server/: db, store, team, status, tmux, agentFiles, delivery, work, hooks, runner, projects, mcp, usage, http, app, main) + engine.test.ts (18 pass). Weekly limit rule raised to 90% by owner.
