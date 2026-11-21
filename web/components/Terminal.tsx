@@ -43,7 +43,7 @@ let support: Promise<{ available: boolean; reason: string }> | null = null;
 type Phase = { kind: "connecting" | "live" } | { kind: "stopped" | "ended" | "error"; text: string };
 
 /** One xterm bound to one live terminal. Remounts (key) when the target changes. */
-function XtermView({ agent, kind, onLink, onPhase }: { agent: Agent; kind: TermKind; onLink: (l: TermLink | null) => void; onPhase: (p: Phase) => void }) {
+function XtermView({ id, name, kind, onLink, onPhase }: { id: string; name: string; kind: TermKind; onLink: (l: TermLink | null) => void; onPhase: (p: Phase) => void }) {
   const host = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -74,11 +74,11 @@ function XtermView({ agent, kind, onLink, onPhase }: { agent: Agent; kind: TermK
       term.open(host.current);
       fit.fit();
       const t = term;
-      link = openTerm(kind, agent.id, {
+      link = openTerm(kind, id, {
         output: (d) => t.write(d),
         notice: (k, text) => {
           if (k === "ready") onPhase({ kind: "live" });
-          else if (k === "ended") onPhase({ kind: "ended", text: kind === "agent" ? `${agent.name}'s session ended.` : "The shell ended." });
+          else if (k === "ended") onPhase({ kind: "ended", text: kind === "agent" ? `${name}'s session ended.` : kind === "fix" ? "Finished." : "The shell ended." });
           else onPhase({ kind: "error", text: text || "Disconnected" });
         },
       }, { cols: t.cols, rows: t.rows });
@@ -116,7 +116,7 @@ function XtermView({ agent, kind, onLink, onPhase }: { agent: Agent; kind: TermK
       term?.dispose();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent.id, kind]);
+  }, [id, kind]);
 
   return <div ref={host} className="xterm-host h-full w-full" />;
 }
@@ -193,7 +193,30 @@ function SnapshotScreen({ agent, full, note }: { agent: Agent; full: boolean; no
 }
 
 /** Terminal card with tabs (Claude Code / Shell), full screen and the phone key bar. */
-export function TerminalCard({ agent }: { agent: Agent }) {
+/** A setup fix running in a terminal (Settings → Setup). It runs once; Run again starts it fresh. */
+export function FixTerminal({ fixId, onDone }: { fixId: string; onDone?: () => void }) {
+  const [phase, setPhase] = useState<Phase>({ kind: "connecting" });
+  const [round, setRound] = useState(0);
+  return (
+    <div>
+      <div className="relative h-[220px] overflow-hidden rounded-[10px] border border-line bg-[#fbfaf7]">
+        <div className="absolute inset-0 py-1.5 pl-2">
+          <XtermView key={`${fixId}-${round}`} id={fixId} name="fix" kind="fix" onLink={() => {}} onPhase={(p) => (setPhase(p), p.kind === "ended" && onDone?.())} />
+        </div>
+      </div>
+      <div className="mt-1 flex items-center gap-2 text-[12px] text-muted">
+        <span>{phase.kind === "connecting" ? "Starting…" : phase.kind === "live" ? "Running. Type here if it asks you something." : ("text" in phase ? phase.text : "")}</span>
+        {phase.kind !== "live" && phase.kind !== "connecting" && (
+          <button className="ml-auto text-accent" onClick={() => setRound((r) => r + 1)}>
+            Run again
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function TerminalCard({ agent, wide, onWide }: { agent: Agent; wide?: boolean; onWide?: (w: boolean) => void }) {
   const [kind, setKind] = useState<TermKind>("agent");
   const [full, setFull] = useState(false);
   const [live, setLive] = useState<{ available: boolean; reason: string } | null>(null);
@@ -248,7 +271,12 @@ export function TerminalCard({ agent }: { agent: Agent }) {
             New shell
           </button>
         )}
-        <button className="ml-auto text-[12px] text-accent" onClick={() => setFull(!full)}>
+        {onWide && !full && (
+          <button className="ml-auto hidden text-[12px] text-accent lg:inline" title="Make the side panel wider or narrower" onClick={() => onWide(!wide)}>
+            {wide ? "Narrower" : "Wider"}
+          </button>
+        )}
+        <button className={`${onWide && !full ? "lg:ml-0" : ""} ml-auto text-[12px] text-accent`} onClick={() => setFull(!full)}>
           {full ? "Close" : "Full screen"}
         </button>
       </div>
@@ -262,7 +290,7 @@ export function TerminalCard({ agent }: { agent: Agent }) {
           <div className={`relative overflow-hidden rounded-[10px] border border-line bg-[#fbfaf7] ${full ? "min-h-0 flex-1" : "h-[300px]"}`}>
             {live && !showAgentOff && (
               <div className="absolute inset-0 py-1.5 pl-2">
-                <XtermView key={`${kind}-${agent.id}-${round}`} agent={agent} kind={kind} onLink={(l) => (link.current = l)} onPhase={setPhase} />
+                <XtermView key={`${kind}-${agent.id}-${round}`} id={agent.id} name={agent.name} kind={kind} onLink={(l) => (link.current = l)} onPhase={setPhase} />
               </div>
             )}
             {(showAgentOff || phase.kind !== "live") && (
@@ -292,7 +320,9 @@ export function TerminalCard({ agent }: { agent: Agent }) {
                 {b.label}
               </button>
             ))}
-            <span className="ml-auto hidden text-[11px] text-muted sm:inline">Shift+Enter: new line · Ctrl+C copies a selection</span>
+            <span className="ml-auto hidden text-[11px] text-muted sm:inline">
+              {kind === "agent" ? "Scroll up for history (Esc returns) · Shift+drag selects" : "Shift+Enter: new line · Ctrl+C copies a selection"}
+            </span>
           </div>
         </>
       )}

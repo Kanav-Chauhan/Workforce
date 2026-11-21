@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { Project } from "../../shared/types";
 import { api } from "../lib/api";
 import { useLive } from "../lib/live";
-import { lookOf } from "../lib/office/looks";
+import { lookFor } from "../lib/office/looks";
 import { TopBar } from "./TopBar";
 
 export function Projects({ demo, open }: { demo: boolean; open: (id: string) => void }) {
@@ -39,7 +39,7 @@ export function Projects({ demo, open }: { demo: boolean; open: (id: string) => 
                 <button className="card flex w-full items-center gap-4 p-4 text-left transition-transform hover:-translate-y-px" onClick={() => open(p.id)}>
                   <div className="flex -space-x-2">
                     {s.team.slice(0, 4).map((a) => (
-                      <span key={a.id} className="grid h-8 w-8 place-items-center rounded-full border-2 border-white text-[12px] font-bold text-white" style={{ background: lookOf(a.sign).shirt, opacity: a.state === "off" ? 0.45 : 1 }}>
+                      <span key={a.id} className="grid h-8 w-8 place-items-center rounded-full border-2 border-white text-[12px] font-bold text-white" style={{ background: lookFor(a).shirt, opacity: a.state === "off" ? 0.45 : 1 }}>
                         {a.name[0]}
                       </span>
                     ))}

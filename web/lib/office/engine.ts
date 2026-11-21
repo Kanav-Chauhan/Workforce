@@ -6,7 +6,7 @@ import { signOf } from "../../../shared/signs";
 import type { Agent, Need, Task } from "../../../shared/types";
 import { ActQueue, type Act } from "../director";
 import { H, LANE, layoutFor, ROWS, W, type Cabin, type Layout, type Member, type Pt } from "./layout";
-import { lookOf, type Look } from "./looks";
+import { lookFor, type Look } from "./looks";
 import { boardMarkup, paperFromShirt, PlanWall } from "./planWall";
 
 const SPEED = 270;
@@ -273,6 +273,10 @@ export class OfficeEngine {
   private lActors!: SVGGElement;
   private lFx!: SVGGElement;
   private wall!: PlanWall;
+  private signG!: SVGGElement;
+  private officeName = "";
+  private boardTitle = "";
+  private showTask: (t: Task) => boolean = () => true;
   private trayG!: SVGGElement;
   private actors: { g: SVGGElement; base: () => number }[] = [];
   private lastOrder = "";
@@ -323,8 +327,8 @@ export class OfficeEngine {
   /** Builds (or rebuilds) the office for this team. Everyone starts at their desk. */
   setTeam(team: Agent[]) {
     const members: Member[] = team.map((a) => {
-      const look = lookOf(a.sign);
-      return { id: a.id, label: `${a.name} ${signSymbol(a.sign)} ${a.isLead ? "Lead" : "Worker"}`, color: look.shirt, isLead: a.isLead };
+      const look = lookFor(a);
+      return { id: a.id, label: `${`${a.name} ${signSymbol(a.sign)}`.trim()} ${a.role || (a.isLead ? "Lead" : "Worker")}`, color: look.shirt, isLead: a.isLead };
     });
     const key = members.map((m) => m.id).join(",");
     for (const a of team) this.agents.set(a.id, a);
@@ -371,9 +375,11 @@ export class OfficeEngine {
       layout.walls.top.map((x) => R(x - 6, 20, 12, 400, "#e2dcd3", 'rx="3"')).join("") +
       layout.walls.bot.map((x) => R(x - 6, 610, 12, 375, "#e2dcd3", 'rx="3"')).join("") +
       layout.cabins.map((c, i) => `<rect class="dim" id="dim-${i}" x="${c.x}" y="${c.row === "top" ? 20 : 610}" width="${c.w}" height="${c.row === "top" ? 400 : 375}" fill="#3b4050" opacity="0" pointer-events="none"/>`).join("");
+    this.signG = grp(this.lFurn, "");
+    this.drawSign();
     this.wall = new PlanWall(grp(this.lFurn, ""), (t) => {
       const owner = t.ownerId ? this.agents.get(t.ownerId) : undefined;
-      return owner ? paperFromShirt(lookOf(owner.sign).shirt) : "#fff1c2";
+      return owner ? paperFromShirt(lookFor(owner).shirt) : "#fff1c2";
     });
 
     for (const c of layout.cabins) this.addActor(glassArt(c), ROWS[c.row].glass);
@@ -393,6 +399,32 @@ export class OfficeEngine {
     this.fit();
   }
 
+  /** The office's name on a sign by the corridor ("" hides it). */
+  setOfficeName(name: string) {
+    this.officeName = name;
+    if (this.signG) this.drawSign();
+  }
+
+  /** Which tasks the plan wall shows (the chosen board), and the board's name in the wall's title. */
+  setBoard(title: string, show: (t: Task) => boolean) {
+    this.boardTitle = title;
+    this.showTask = show;
+    const t = this.svg.querySelector<SVGTextElement>(".planTitle");
+    if (t) t.textContent = title ? `Plan · ${clip(title, 22)}` : "Plan";
+  }
+
+  private drawSign() {
+    const t = this.svg.querySelector<SVGTextElement>(".planTitle");
+    if (t) t.textContent = this.boardTitle ? `Plan · ${clip(this.boardTitle, 22)}` : "Plan";
+    const name = clip(this.officeName.trim(), 32);
+    if (!name) return void (this.signG.innerHTML = "");
+    const w = Math.round(name.length * 9.6 + 60);
+    this.signG.innerHTML = `<g filter="url(#fSh)"><rect x="40" y="434" width="${w}" height="44" rx="12" fill="#fff"/></g>
+      <rect x="40" y="434" width="8" height="44" rx="4" fill="#4f6bed"/>
+      <rect x="60" y="449" width="14" height="14" rx="4" fill="url(#gSky)" stroke="#4f6bed" stroke-width="1.5"/>
+      ${T(84, 461, name, `font-family="${SANS}" font-size="16" font-weight="700" fill="#2b2f3a" letter-spacing=".2"`)}`;
+  }
+
   private addActor(html: string, base: number) {
     const g = grp(this.lActors, html);
     this.actors.push({ g, base: () => base });
@@ -400,8 +432,8 @@ export class OfficeEngine {
   }
 
   private makePerson(a: Agent) {
-    const P = lookOf(a.sign), hp = hairPaths(P.style);
-    const tagText = `${a.name} ${signSymbol(a.sign)}`;
+    const P = lookFor(a), hp = hairPaths(P.style);
+    const tagText = `${a.name} ${signSymbol(a.sign)}`.trim();
     const tw = Math.max(54, tagText.length * 6 + 22);
     const g = grp(null, `
       <g class="sc" transform="scale(${SCALE})">
@@ -473,7 +505,7 @@ export class OfficeEngine {
     }
     const open = needs.filter((n) => n.status === "open").length;
     this.setScreen("ceo", open ? "needs you" : "inbox", open ? `${open} waiting` : "all clear", false);
-    this.wall.show(tasks);
+    this.wall.show(tasks.filter(this.showTask));
     this.syncTray(tasks);
   }
 

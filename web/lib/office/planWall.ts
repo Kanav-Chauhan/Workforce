@@ -17,7 +17,7 @@ const shorten = (s: string, max: number) => (s.length > max ? `${s.slice(0, max 
 export function boardMarkup(): string {
   const { left, top, width, height } = BOARD;
   let out = `<g filter="url(#fSh)"><rect x="${left}" y="${top}" width="${width}" height="${height}" rx="10" fill="#fff"/></g>`;
-  out += `<text x="${left + 18}" y="${top + 22}" font-family="${FONT}" font-size="13" font-weight="700" fill="#2b2f3a">Plan</text>`;
+  out += `<text class="planTitle" x="${left + 18}" y="${top + 22}" font-family="${FONT}" font-size="13" font-weight="700" fill="#2b2f3a">Plan</text>`;
   LANES.forEach((lane, i) => {
     const x = laneLeft(i);
     out += `<rect x="${x}" y="${top + 32}" width="${LANE_W}" height="${height - 42}" rx="7" fill="${lane.wash}"/>`;

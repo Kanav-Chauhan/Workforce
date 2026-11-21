@@ -27,3 +27,18 @@ export const LOOKS: Record<string, Look> = {
 };
 
 export const lookOf = (sign: string): Look => LOOKS[sign] ?? LOOKS.aquarius!;
+
+/** A look for any agent: its sign's, or one made from a custom agent's own colour. */
+export function lookFor(a: { sign: string; color?: string; name?: string }): Look {
+  if (!a.color || !/^#[0-9a-f]{6}$/i.test(a.color)) return lookOf(a.sign);
+  const base = LOOKS[Object.keys(LOOKS)[hash(a.name || a.sign) % 12]!]!;
+  return { ...base, shirt: a.color, shirt2: shade(a.color, 0.85) };
+}
+
+const hash = (s: string) => [...s].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7);
+
+function shade(hex: string, f: number) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = (v: number) => Math.round(v * f).toString(16).padStart(2, "0");
+  return `#${c((n >> 16) & 255)}${c((n >> 8) & 255)}${c(n & 255)}`;
+}

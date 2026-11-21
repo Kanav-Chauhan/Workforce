@@ -1,7 +1,8 @@
 // Demo mode (/?demo=1): the preview's story, played as fake live events through the same store,
 // director and office as the real thing. Buttons work too: Allow/Deny, answers, messages, start/stop.
 
-import type { Activity, Agent, LiveFrame, LiveState, Message, Need, Project, Task } from "../../shared/types";
+import type { Activity, Agent, LiveFrame, LiveState, McpServer, Message, Need, Project, SetupCheck, Task } from "../../shared/types";
+import { stackPlan, STACK } from "../../shared/stacks";
 import type { TermEvents, TermKind, TermLink } from "./term/link";
 
 type Emit = (f: LiveFrame) => void;
@@ -18,7 +19,11 @@ export class DemoStory {
   private waits = new Map<number, (v: { allow: boolean; answer: string }) => void>();
   private screens = new Map<string, string[]>();
   private timers = new Set<ReturnType<typeof setTimeout>>();
-  private project: Project = { id: P, repo: "you/demo-repo", name: "demo-repo", prefix: "WF", defaultBranch: "main", permissionStyle: "careful", createdAt: iso() };
+  private project: Project = { id: P, repo: "you/demo-repo", name: "demo-repo", prefix: "WF", defaultBranch: "main", permissionStyle: "careful", createdAt: iso(), stack: ["nextjs", "react", "tailwind"], boards: ["v1", "Polish"], planExport: false };
+  private officeName = "Demo studio";
+  private mcp: McpServer[] = [{ id: 1, name: "playwright", kind: "stdio", command: "npx", args: ["-y", "@playwright/mcp@latest"], url: "", headerName: "", envName: "", agentIds: [`${P}.virgo`] }];
+  private env = new Map<string, Set<string>>([[`${P}.aries`, new Set(["STRIPE_SECRET_KEY"])]]);
+  private ghAuthed = false;
 
   /** workers: 1–3 (the story uses Aries and Virgo; extras just live in the office). */
   constructor(private emit: Emit, private workers = 2) {}
@@ -40,20 +45,29 @@ export class DemoStory {
     this.tasks.clear();
     this.needs.clear();
     this.screens.clear();
-    const mk = (sign: string, name: string, isLead: boolean): Agent => ({
-      id: `${P}.${sign}`, projectId: P, sign, name, isLead, extraRole: "", model: "", sessionId: "", state: "ready", note: "Waiting for instructions", taskId: null, stateSince: iso(),
+    const mk = (sign: string, name: string, isLead: boolean, role = "", color = ""): Agent => ({
+      id: `${P}.${sign}`, projectId: P, sign, name, isLead, extraRole: "", model: "", role, color, folder: "", sessionId: "", state: "ready", note: "Waiting for instructions", taskId: null, stateSince: iso(),
     });
     const team = [mk("leo", "Leo", true), mk("aries", "Aries", false), mk("virgo", "Virgo", false), mk("capricorn", "Capricorn", false), mk("libra", "Libra", false), mk("scorpio", "Scorpio", false)];
     for (const a of team.slice(0, 1 + Math.max(2, Math.min(5, this.workers)))) this.agents.set(a.id, a);
     if (this.workers === 1) this.agents.delete(this.id("virgo"));
+    // A custom agent, to show off the owner's own roles.
+    const quinn = mk("x-quinn", "Quinn", false, "QA", "#d4608f");
+    this.agents.set(quinn.id, quinn);
+    const polish: Task = {
+      id: "WF-3", projectId: P, title: "Dark mode toggle", details: "A toggle in the header that remembers the choice.", files: ["components/Header.tsx"], doneWhen: "Toggle works and survives a reload",
+      dependsOn: [], phase: "Polish", status: "todo", ownerId: null, prNumber: null, note: "", createdAt: iso(), updatedAt: iso(),
+    };
+    this.tasks.set(polish.id, polish);
     return {
       projects: [this.project],
       agents: [...this.agents.values()],
-      tasks: [],
+      tasks: [...this.tasks.values()],
       needs: [],
       usage: { percent: 42, resetsAt: null, limit: 90, pausedByOwner: false, paused: false },
       activity: [{ id: this.seq++, projectId: P, agentId: null, text: "Demo: a scripted story with fake agents. Nothing real runs.", at: iso() }],
       messages: [],
+      office: { name: this.officeName },
     };
   }
 
@@ -80,6 +94,15 @@ export class DemoStory {
 
   /** A fake live terminal: the story's lines in Claude Code colours, plus a toy shell. */
   openTerminal(kind: TermKind, agentId: string, ev: TermEvents): TermLink {
+    if (kind === "fix") {
+      const t = setTimeout(() => {
+        ev.notice("ready", "");
+        ev.output("$ gh auth login\r\n\x1b[2m(demo: nothing really runs)\x1b[0m\r\n\x1b[32m✓\x1b[0m Logged in as you\r\n\r\nDone. Press Check again in Workforce.\r\n");
+        this.ghAuthed = true;
+        setTimeout(() => ev.notice("ended", ""), 400);
+      }, 300);
+      return { keys: () => {}, size: () => {}, renew: () => {}, close: () => clearTimeout(t) };
+    }
     const a = this.agents.get(agentId);
     const sign = a?.sign ?? "";
     const tick = (line: string) => `\x1b[38;2;47;174;122m●\x1b[0m ${line}\r\n`;
@@ -238,10 +261,10 @@ export class DemoStory {
     await this.sleep(1200);
     this.agent("leo", { state: "working", note: "Planning the owner's request" });
     await this.sleep(2500);
-    this.task("WF-1", { title: "/health page", details: "Add a page at /health that returns ok and the app version.", files: ["app/health/page.tsx"], doneWhen: "GET /health shows ok", phase: "Phase 1" });
+    this.task("WF-1", { title: "/health page", details: "Add a page at /health that returns ok and the app version.", files: ["app/health/page.tsx"], doneWhen: "GET /health shows ok", phase: "v1" });
     this.act("leo", "Leo created WF-1 /health page");
     await this.sleep(700);
-    this.task("WF-2", { title: "Site footer", details: "A footer with the year and a link to the repo.", files: ["components/Footer.tsx", "app/layout.tsx"], doneWhen: "Footer shows on every page", phase: "Phase 1" });
+    this.task("WF-2", { title: "Site footer", details: "A footer with the year and a link to the repo.", files: ["components/Footer.tsx", "app/layout.tsx"], doneWhen: "Footer shows on every page", phase: "v1" });
     this.act("leo", "Leo created WF-2 Site footer");
     await this.sleep(1200);
 
@@ -365,8 +388,8 @@ export class DemoStory {
       void this.loop(text);
       return { ok: true };
     }
-    if (/^\/api\/projects\/[^/]+\/agents$/.test(path)) throw new Error("The demo team is fixed. Add agents in a real project.");
-    if (path === "/api/projects" && method === "POST") throw new Error("Demo mode: leave the demo to add real projects.");
+    const extra = this.extras(method, path, b);
+    if (extra !== undefined) return extra;
     if ((m = /^\/api\/tasks\/([^/]+)\/assign$/.exec(path))) {
       const to = [...this.agents.values()].find((a) => a.id === b.to || a.sign === b.to);
       if (!to) throw new Error("No such agent");
@@ -376,6 +399,133 @@ export class DemoStory {
     if (path === "/api/usage") return { percent: 42, resetsAt: null, limit: 90, pausedByOwner: !!b.paused, paused: !!b.paused };
     if (/^\/api\/projects\/[^/]+\/feed$/.test(path)) return { activity: [], messages: [] };
     throw new Error("Not in the demo");
+  }
+
+  // ------------------------------------------------------------ part 2b screens, with fake data
+
+  private extras(method: string, path: string, b: Record<string, unknown>): unknown {
+    let m: RegExpExecArray | null;
+    if (path === "/api/projects" && method === "POST") return this.project; // the welcome steps "add" the demo project
+    if (/^\/api\/projects\/[^/]+\/agents$/.test(path)) {
+      const c = b.custom as { name?: string; role?: string; color?: string } | undefined;
+      if (!c?.name?.trim() || !c.role?.trim()) throw new Error(c ? "Give the agent a name and a role" : "The demo's zodiac team is full. Try a custom agent.");
+      const sign = `x-${c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+      if (this.agents.has(this.id(sign))) throw new Error(`${c.name} is already on the team`);
+      const a: Agent = { id: this.id(sign), projectId: P, sign, name: c.name.trim(), isLead: false, extraRole: "", model: "", role: c.role.trim(), color: c.color ?? "", folder: "", sessionId: "", state: "off", note: "Not started", taskId: null, stateSince: iso() };
+      this.agents.set(a.id, a);
+      this.emit({ type: "agent", agent: a });
+      this.act(null, `${a.name} (${a.role}) joined the team`);
+      return a;
+    }
+    if ((m = /^\/api\/agents\/([^/?]+)(\?.*)?$/.exec(path)) && method === "DELETE") {
+      const a = this.agents.get(decodeURIComponent(m[1]!));
+      if (!a || a.isLead) throw new Error("The lead can't be removed");
+      this.agents.delete(a.id);
+      this.emit({ type: "agentRemoved", id: a.id, projectId: P });
+      this.act(null, `${a.name} left the team`);
+      return { ok: true };
+    }
+    if (path === "/api/office") {
+      this.officeName = String(b.name ?? "").trim();
+      this.emit({ type: "office", office: { name: this.officeName } });
+      return { name: this.officeName };
+    }
+    if (/^\/api\/projects\/[^/]+$/.test(path) && method === "PATCH") {
+      if (b.permissionStyle === "careful" || b.permissionStyle === "trusted") this.project = { ...this.project, permissionStyle: b.permissionStyle };
+      if (typeof b.planExport === "boolean") this.project = { ...this.project, planExport: b.planExport };
+      this.emit({ type: "project", project: this.project });
+      return this.project;
+    }
+    if (/\/plan-export$/.test(path)) return { on: this.project.planExport, path: "~/.workforce/projects/demo-repo/leo/docs/plan.md", written: this.project.planExport };
+    if (/\/boards$/.test(path)) {
+      const name = String(b.name ?? "").trim().slice(0, 40);
+      if (!name) throw new Error("Give the board a name");
+      if (!this.project.boards.some((x) => x.toLowerCase() === name.toLowerCase())) {
+        this.project = { ...this.project, boards: [...this.project.boards, name] };
+        this.emit({ type: "project", project: this.project });
+      }
+      return { name };
+    }
+    if (/\/stack$/.test(path)) {
+      if (method === "POST") {
+        this.project = { ...this.project, stack: ((b.tools as string[]) ?? []).filter((t) => STACK.some((x) => x.id === t)) };
+        this.emit({ type: "project", project: this.project });
+      }
+      return { stack: this.project.stack, report: this.stackReport() };
+    }
+    if (path === "/api/setup") {
+      const ok = (id: string, label: string, detail: string): SetupCheck => ({ id, label, ok: true, detail });
+      return {
+        terminals: true,
+        platform: "linux",
+        checks: [
+          ok("git", "git", "version 2.43.0"),
+          ok("gh", "GitHub CLI (gh)", "version 2.46.0"),
+          this.ghAuthed ? ok("gh-auth", "GitHub login", "logged in as you") : { id: "gh-auth", label: "GitHub login", ok: false, detail: "Not logged in", fix: { id: "gh-auth", command: "gh auth login" } },
+          ok("tmux", "tmux", "version 3.4"),
+          ok("claude", "Claude Code", "version 2.1.330"),
+          ok("node", "Node.js", "version 24.22.1"),
+          ok("disk", "Disk space", "41 GB free"),
+        ],
+      };
+    }
+    if (path === "/api/mcp") {
+      if (method === "POST") {
+        const s = { ...(b as unknown as McpServer), id: Number(b.id) || this.seq++ };
+        if (!s.name?.trim()) throw new Error("Name: letters, digits, - and _ only");
+        this.mcp = [...this.mcp.filter((x) => x.id !== s.id), s].sort((a, c) => a.name.localeCompare(c.name));
+        return s;
+      }
+      return { servers: this.mcp };
+    }
+    if ((m = /^\/api\/mcp\/(\d+)$/.exec(path))) {
+      this.mcp = this.mcp.filter((x) => x.id !== Number(m![1]));
+      return { ok: true };
+    }
+    if ((m = /^\/api\/agents\/([^/]+)\/env(?:\/([^/]+))?$/.exec(path))) {
+      const id = decodeURIComponent(m[1]!);
+      const set = this.env.get(id) ?? new Set<string>();
+      this.env.set(id, set);
+      if (method === "POST") {
+        const name = String(b.name ?? "").trim();
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error("Use letters, digits and _ for the name");
+        set.add(name);
+      }
+      if (method === "DELETE" && m[2]) set.delete(decodeURIComponent(m[2]));
+      const wanted = this.mcp.filter((x) => x.agentIds.includes(id) && x.envName).map((x) => x.envName);
+      const names = [...new Set([...set, ...wanted])].sort();
+      return { vars: names.map((name) => ({ name, set: set.has(name), neededBy: this.mcp.filter((x) => x.envName === name && x.agentIds.includes(id)).map((x) => x.name) })) };
+    }
+    if (/\/ports$/.test(path))
+      return {
+        local: true,
+        ports: [
+          { agentId: this.id("aries"), port: 3000, address: "127.0.0.1", program: "next-server", pid: 4242 },
+          { agentId: this.id("virgo"), port: 6006, address: "0.0.0.0", program: "node", pid: 5150 },
+        ],
+      };
+    if (path === "/api/debug")
+      return {
+        version: "0.1.0 (demo)",
+        node: "24.22.1",
+        uptimeS: 3725,
+        pid: 1234,
+        tmuxSessions: [...this.agents.values()].filter((a) => a.state !== "off").map((a) => `wf-${P}-${a.sign}`),
+        liveTerminals: true,
+        lastHooks: [...this.agents.values()].map((a) => ({ agentId: a.id, name: a.name, projectId: P, event: a.state === "off" ? null : "Stop", at: a.state === "off" ? null : iso() })),
+      };
+    return undefined;
+  }
+
+  private stackReport() {
+    const plan = stackPlan(this.project.stack);
+    return {
+      at: iso(),
+      skills: plan.skills.map((s) => ({ name: s.name, repo: s.repo, tools: STACK.filter((t) => this.project.stack.includes(t.id) && t.skills?.paths.includes(s.path)).map((t) => t.label) })),
+      domains: plan.domains,
+      agents: [...this.agents.values()].map((a) => ({ agentId: a.id, name: a.name, skills: plan.skills.length, note: "Demo: nothing installed" })),
+      problems: [],
+    };
   }
 }
 

@@ -3,11 +3,12 @@
 // The office view: the SVG engine, driven by live events through the Director.
 
 import { useEffect, useRef } from "react";
+import { onBoard } from "../../shared/boards";
 import { Director } from "../lib/director";
 import { store, type View } from "../lib/live";
 import { OfficeEngine, type Pick } from "../lib/office/engine";
 
-export function Office({ projectId, selected, onPick, children }: { projectId: string; selected: string | null; onPick: (p: Pick) => void; children?: React.ReactNode }) {
+export function Office({ projectId, selected, onPick, board, boards, officeName, children }: { projectId: string; selected: string | null; onPick: (p: Pick) => void; board: string; boards: string[]; officeName: string; children?: React.ReactNode }) {
   const stageRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const engineRef = useRef<OfficeEngine | null>(null);
@@ -59,6 +60,21 @@ export function Office({ projectId, selected, onPick, children }: { projectId: s
   useEffect(() => {
     engineRef.current?.select(selected);
   }, [selected]);
+
+  const boardsKey = boards.join("\u0000");
+  useEffect(() => {
+    const e = engineRef.current;
+    if (!e) return;
+    // Only show a board name on the wall when there is more than one board.
+    e.setBoard(boards.length > 1 ? board : "", (t) => onBoard(t, board, boards));
+    const v = store.view;
+    e.sync(v.agents.filter((a) => a.projectId === projectId), v.tasks.filter((t) => t.projectId === projectId), v.needs.filter((n) => n.projectId === projectId));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [board, boardsKey, projectId]);
+
+  useEffect(() => {
+    engineRef.current?.setOfficeName(officeName);
+  }, [officeName]);
 
   return (
     <div ref={stageRef} className="stage relative h-full min-h-0 overflow-hidden">

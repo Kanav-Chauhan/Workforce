@@ -8,6 +8,10 @@ import type { Activity, LiveEvent, LiveFrame, LiveState, Message, Need, Task, Ag
 
 export interface View extends LiveState {
   connected: boolean;
+  /** Seen the server at least once (so a drop shows "Reconnecting", not "Connecting"). */
+  everConnected: boolean;
+  /** When the next reconnect try happens (ms epoch), while disconnected. */
+  retryAt: number | null;
   /** Bumped on every init, so the office knows to start over. */
   epoch: number;
 }
@@ -20,7 +24,10 @@ const EMPTY: View = {
   usage: { percent: null, resetsAt: null, limit: 90, pausedByOwner: false, paused: false },
   activity: [],
   messages: [],
+  office: { name: "" },
   connected: false,
+  everConnected: false,
+  retryAt: null,
   epoch: 0,
 };
 
@@ -56,8 +63,9 @@ export class LiveStore {
     for (const fn of this.subs) fn();
   }
 
-  setConnected(connected: boolean) {
-    if (this.view.connected !== connected) this.set({ ...this.view, connected });
+  setConnected(connected: boolean, retryAt: number | null = null) {
+    const v = this.view;
+    if (v.connected !== connected || v.retryAt !== retryAt) this.set({ ...v, connected, retryAt, everConnected: v.everConnected || connected });
   }
 
   setUsage(usage: Usage) {
@@ -68,7 +76,7 @@ export class LiveStore {
     const v = this.view;
     switch (f.type) {
       case "init":
-        this.set({ ...f.state, connected: v.connected, epoch: v.epoch + 1 });
+        this.set({ ...v, ...f.state, office: f.state.office ?? { name: "" }, epoch: v.epoch + 1 });
         break;
       case "usage":
         this.set({ ...v, usage: f.usage });
@@ -78,6 +86,12 @@ export class LiveStore {
         break;
       case "agent":
         this.set({ ...v, agents: upsert<Agent, string>(v.agents, f.agent, (x) => x.id) });
+        break;
+      case "agentRemoved":
+        this.set({ ...v, agents: v.agents.filter((a) => a.id !== f.id) });
+        break;
+      case "office":
+        this.set({ ...v, office: f.office });
         break;
       case "task":
         this.set({ ...v, tasks: upsert<Task, string>(v.tasks, f.task, (x) => x.id) });
@@ -108,7 +122,12 @@ export const store = new LiveStore();
 
 export const useLive = () => useSyncExternalStore(store.subscribe, store.get, () => EMPTY);
 
-/** Connects to /live and reconnects after drops (1 s, 2 s, 4 s … up to 15 s). */
+let retryNow: () => void = () => {};
+/** Skip the wait and try to reconnect right away (the banner's Retry button). */
+export const reconnectNow = () => retryNow();
+
+/** Connects to /live and reconnects after drops (1 s, 2 s, 4 s … up to 15 s). Each connect starts
+ * with the full state (init), so anything missed while away is caught up. */
 export function connectLive(): () => void {
   let ws: WebSocket | null = null;
   let stopped = false;
@@ -129,11 +148,17 @@ export function connectLive(): () => void {
       }
     };
     ws.onclose = () => {
-      store.setConnected(false);
       if (stopped) return;
+      store.setConnected(false, Date.now() + delay);
       timer = setTimeout(open, delay);
       delay = Math.min(15000, delay * 2);
     };
+  };
+  retryNow = () => {
+    if (stopped || store.view.connected) return;
+    clearTimeout(timer);
+    store.setConnected(false, Date.now());
+    open();
   };
   open();
   return () => {

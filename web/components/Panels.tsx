@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { Activity, Agent, Message, Need, Project, Task } from "../../shared/types";
 import { api } from "../lib/api";
 import { TerminalCard } from "./Terminal";
-import { agentTitle, ago, Avatar, clock, Dot, StatePill, TASK_STATUS } from "./ui";
+import { roleLabel, agentTitle, ago, Avatar, clock, Dot, StatePill, TASK_STATUS } from "./ui";
 
 function Close({ onClose }: { onClose: () => void }) {
   return (
@@ -16,7 +16,7 @@ function Close({ onClose }: { onClose: () => void }) {
   );
 }
 
-export function AgentPanel({ agent, tasks, activity, messages, onClose, onTask }: { agent: Agent; tasks: Task[]; activity: Activity[]; messages: Message[]; onClose: () => void; onTask: (id: string) => void }) {
+export function AgentPanel({ agent, wide, onWide, tasks, activity, messages, onClose, onTask }: { agent: Agent; wide?: boolean; onWide?: (w: boolean) => void; tasks: Task[]; activity: Activity[]; messages: Message[]; onClose: () => void; onTask: (id: string) => void }) {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
   const task = tasks.find((t) => t.id === agent.taskId) ?? tasks.find((t) => t.ownerId === agent.id && t.status !== "done");
@@ -39,7 +39,7 @@ export function AgentPanel({ agent, tasks, activity, messages, onClose, onTask }
         <Avatar agent={agent} />
         <div className="min-w-0">
           <h3 className="m-0 text-[15px] font-semibold">{agentTitle(agent)}</h3>
-          <div className="text-xs text-muted">{agent.isLead ? "Lead" : "Worker"}</div>
+          <div className="text-xs text-muted">{roleLabel(agent)}</div>
         </div>
         <Close onClose={onClose} />
       </div>
@@ -92,7 +92,7 @@ export function AgentPanel({ agent, tasks, activity, messages, onClose, onTask }
           </ul>
         </>
       )}
-      <TerminalCard agent={agent} />
+      <TerminalCard agent={agent} wide={wide} onWide={onWide} />
     </div>
   );
 }

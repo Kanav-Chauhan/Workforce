@@ -12,7 +12,7 @@ export interface Chip {
   on?: boolean;
 }
 
-export function TopBar({ project, demo, connected, usage, chips = [], onSettings }: { project?: Project; demo: boolean; connected: boolean; usage: Usage; chips?: Chip[]; onSettings?: () => void }) {
+export function TopBar({ project, demo, connected, usage, chips = [], onSettings, onPorts }: { project?: Project; demo: boolean; connected: boolean; usage: Usage; chips?: Chip[]; onSettings?: () => void; onPorts?: () => void }) {
   const [busy, setBusy] = useState(false);
   const pause = async () => {
     setBusy(true);
@@ -42,7 +42,7 @@ export function TopBar({ project, demo, connected, usage, chips = [], onSettings
         ))}
       </div>
       <div className="flex-1" />
-      {!connected && !demo && <span className="chip !bg-[#fdecea] !text-[#a2352e]">Reconnecting…</span>}
+      {!connected && !demo && <span className="chip !bg-[#fdecea] !text-[#a2352e] max-sm:hidden">Offline</span>}
       <span className="chip hidden md:inline-flex" title={usage.resetsAt ? `Weekly Claude usage. Resets ${new Date(usage.resetsAt).toLocaleString()}` : "Weekly Claude usage"}>
         <Dot color={usageColor} />
         {pct === null ? "Usage —" : `Usage ${pct}%`}
@@ -51,10 +51,16 @@ export function TopBar({ project, demo, connected, usage, chips = [], onSettings
       <button className="btn btn-sm hidden md:inline-flex" disabled={busy} onClick={pause} title="Paused: no new messages or tasks reach the agents">
         {usage.pausedByOwner ? "Resume team" : "Pause team"}
       </button>
+      {onPorts && (
+        <button className="btn btn-sm" onClick={onPorts} aria-label="Ports" title="Ports the agents' programs listen on">
+          <span aria-hidden>⇄</span>
+          <span className="hidden md:inline">Ports</span>
+        </button>
+      )}
       {onSettings && (
         <button className="btn btn-sm" onClick={onSettings} aria-label="Settings">
           <span aria-hidden>⚙</span>
-          <span className="hidden md:inline">Team</span>
+          <span className="hidden md:inline">Settings</span>
         </button>
       )}
     </header>

@@ -1,7 +1,7 @@
 "use client";
 
 import type { Agent, AgentState, TaskStatus } from "../../shared/types";
-import { lookOf } from "../lib/office/looks";
+import { lookFor } from "../lib/office/looks";
 import { signOf } from "../../shared/signs";
 
 export const signSymbol = (sign: string) => signOf(sign)?.symbol ?? "";
@@ -29,15 +29,17 @@ export function StatePill({ state }: { state: AgentState }) {
   );
 }
 
-export function Avatar({ agent, size = 36 }: { agent: Pick<Agent, "sign" | "name">; size?: number }) {
+export function Avatar({ agent, size = 36 }: { agent: Pick<Agent, "sign" | "name"> & { color?: string }; size?: number }) {
   return (
-    <div className="grid shrink-0 place-items-center rounded-xl font-bold text-white" style={{ width: size, height: size, background: lookOf(agent.sign).shirt, fontSize: size * 0.42 }}>
+    <div className="grid shrink-0 place-items-center rounded-xl font-bold text-white" style={{ width: size, height: size, background: lookFor(agent).shirt, fontSize: size * 0.42 }}>
       {agent.name[0]}
     </div>
   );
 }
 
-export const agentTitle = (a: Pick<Agent, "name" | "sign">) => `${a.name} ${signSymbol(a.sign)}`;
+export const agentTitle = (a: Pick<Agent, "name" | "sign">) => `${a.name} ${signSymbol(a.sign)}`.trim();
+/** "Lead", "Worker" or a custom agent's own role ("QA"). */
+export const roleLabel = (a: Pick<Agent, "isLead"> & { role?: string }) => a.role || (a.isLead ? "Lead" : "Worker");
 
 export function clock(at: string) {
   const d = new Date(at);

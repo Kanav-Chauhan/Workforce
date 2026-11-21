@@ -3,26 +3,32 @@
 // One page, two screens: the projects list, or one project's office (?p=<id>). ?demo=1 plays the demo story.
 
 import { useEffect, useState } from "react";
+import { ConnectionBanner } from "../components/Extras";
 import { Projects } from "../components/Projects";
+import { Welcome } from "../components/Welcome";
 import { ProjectScreen } from "../components/ProjectScreen";
 import { setDemoApi } from "../lib/api";
 import { DemoStory } from "../lib/demo";
 import { setDemoTerminals } from "../lib/term/link";
-import { connectLive, store } from "../lib/live";
+import { connectLive, store, useLive } from "../lib/live";
 
 interface Route {
   project: string | null;
   demo: boolean;
+  welcome: boolean;
 }
 
 const readRoute = (): Route => {
   const q = new URLSearchParams(location.search);
   const demo = q.get("demo") === "1";
-  return { demo, project: q.get("p") ?? (demo && !q.get("list") ? "demo-repo" : null) };
+  const welcome = q.get("welcome") === "1";
+  return { demo, welcome, project: q.get("p") ?? (demo && !q.get("list") && !welcome ? "demo-repo" : null) };
 };
 
 export default function Home() {
   const [route, setRoute] = useState<Route | null>(null);
+  const [skipWelcome, setSkipWelcome] = useState(false);
+  const v = useLive();
 
   useEffect(() => {
     const r = readRoute();
@@ -56,5 +62,18 @@ export default function Home() {
     history.pushState(null, "", `?${q}`);
     setRoute({ ...route, project: id });
   };
-  return route.project ? <ProjectScreen key={route.project} projectId={route.project} demo={route.demo} /> : <Projects demo={route.demo} open={open} />;
+  // First run (nothing added yet) shows the welcome steps; ?welcome=1 shows them any time.
+  const firstRun = !route.project && !skipWelcome && (route.welcome || (v.connected && !route.demo && v.everConnected && !v.projects.length));
+  return (
+    <>
+      <ConnectionBanner demo={route.demo} />
+      {firstRun ? (
+        <Welcome open={open} onSkip={() => setSkipWelcome(true)} />
+      ) : route.project ? (
+        <ProjectScreen key={route.project} projectId={route.project} demo={route.demo} />
+      ) : (
+        <Projects demo={route.demo} open={open} />
+      )}
+    </>
+  );
 }

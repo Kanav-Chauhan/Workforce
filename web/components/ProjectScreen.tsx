@@ -2,11 +2,13 @@
 
 // The project screen: the office in the middle, Needs you on top, the right column (a bottom sheet on phones).
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { boardOf, boardsOf } from "../../shared/boards";
 import type { Activity, Agent, Task } from "../../shared/types";
 import { api } from "../lib/api";
 import { useLive } from "../lib/live";
 import type { Pick } from "../lib/office/engine";
+import { BoardSwitcher, PortsDrawer } from "./Extras";
 import { NeedsStrip } from "./NeedsStrip";
 import { Office } from "./Office";
 import { AgentPanel, CeoPanel, TaskPanel } from "./Panels";
@@ -126,6 +128,22 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
   const [listTab, setListTab] = useState<"activity" | "board">("activity");
   const [min, setMin] = useState(false);
   const [settings, setSettings] = useState(false);
+  const [ports, setPorts] = useState(false);
+  const boards = useMemo(() => (project ? boardsOf(project, tasks) : ["Main"]), [project, tasks]);
+  const [boardPick, setBoardPick] = useState("");
+  const board = boards.find((b) => b === boardPick) ?? boards[0]!;
+  const boardTasks = useMemo(() => tasks.filter((t) => boardOf(t, boards) === board), [tasks, boards, board]);
+  const counts = useMemo(() => Object.fromEntries(boards.map((b) => [b, tasks.filter((t) => boardOf(t, boards) === b && t.status !== "done").length])), [tasks, boards]);
+  // The terminal needs room: widen the side panel on big screens while an agent is open.
+  const [wide, setWide] = useState(true);
+  const [bigScreen, setBigScreen] = useState(false);
+  useEffect(() => {
+    const m = window.matchMedia("(min-width: 1200px)");
+    const on = () => setBigScreen(m.matches);
+    on();
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
 
   const pick = (p: Pick) => {
     setSel(p);
@@ -140,7 +158,7 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
   const working = agents.filter((a) => a.state === "working").length;
 
   const details = selAgent ? (
-    <AgentPanel agent={selAgent} tasks={tasks} activity={activity} messages={messages} onClose={() => pick(null)} onTask={(id) => pick({ kind: "task", id })} />
+    <AgentPanel agent={selAgent} wide={wide} onWide={bigScreen ? setWide : undefined} tasks={tasks} activity={activity} messages={messages} onClose={() => pick(null)} onTask={(id) => pick({ kind: "task", id })} />
   ) : selTask ? (
     <TaskPanel task={selTask} project={project} agents={agents} activity={activity} onClose={() => pick(null)} onAgent={(id) => pick({ kind: "agent", id })} />
   ) : sel?.kind === "ceo" ? (
@@ -156,6 +174,13 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
       </div>
     );
 
+  const boardTab = (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <BoardSwitcher projectId={projectId} boards={boards} board={board} counts={counts} onPick={setBoardPick} />
+      <Board tasks={boardTasks} agents={agents} onTask={(id) => pick({ kind: "task", id })} />
+    </div>
+  );
+
   // Tabs: on desktop the details card sits above the list; on phones everything shares one sheet.
   const mobileTab: Tab = tab === "details" && !details ? "activity" : tab;
   return (
@@ -170,9 +195,17 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
           { label: `${needs.length} needs you`, color: "#e8a23a", on: needs.length > 0 },
         ]}
         onSettings={() => setSettings(true)}
+        onPorts={() => setPorts(true)}
       />
-      <main className="grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[1fr_auto] md:grid-cols-[1fr_340px] md:grid-rows-1">
-        <Office projectId={projectId} selected={selAgent?.id ?? null} onPick={pick}>
+      <main
+        className={`grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[1fr_auto] md:grid-rows-1 md:transition-[grid-template-columns] md:duration-300 ${selAgent && wide && bigScreen ? "md:grid-cols-[1fr_minmax(340px,600px)]" : "md:grid-cols-[1fr_340px]"}`}
+      >
+        <Office projectId={projectId} selected={selAgent?.id ?? null} onPick={pick} board={board} boards={boards} officeName={v.office.name}>
+          {boards.length > 1 && (
+            <div data-hud className="absolute top-3 right-3 max-w-[60%] rounded-xl bg-white/95 px-2 py-1.5 shadow-card max-md:top-auto max-md:bottom-3 max-md:left-3 max-md:right-auto max-md:max-w-[70%]">
+              <BoardSwitcher compact projectId={projectId} boards={boards} board={board} counts={counts} onPick={setBoardPick} />
+            </div>
+          )}
           <NeedsStrip needs={needs} agents={agents} />
           {agents.length > 0 && agents.every((a) => a.state === "off") && (
             <div data-hud className="absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-white px-4 py-2.5 text-[13px] shadow-pop md:bottom-14">
@@ -208,13 +241,14 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
                 </button>
               ))}
             </div>
-            <div className="hidden min-h-0 flex-1 flex-col md:flex">{listTab === "activity" ? <Feed activity={activity} agents={agents} /> : <Board tasks={tasks} agents={agents} onTask={(id) => pick({ kind: "task", id })} />}</div>
-            <div className="flex min-h-0 flex-1 flex-col md:hidden">{mobileTab === "board" ? <Board tasks={tasks} agents={agents} onTask={(id) => pick({ kind: "task", id })} /> : <Feed activity={activity} agents={agents} />}</div>
+            <div className="hidden min-h-0 flex-1 flex-col md:flex">{listTab === "activity" ? <Feed activity={activity} agents={agents} /> : boardTab}</div>
+            <div className="flex min-h-0 flex-1 flex-col md:hidden">{mobileTab === "board" ? boardTab : <Feed activity={activity} agents={agents} />}</div>
           </section>
           <MessageBox projectId={projectId} lead={lead} />
         </aside>
       </main>
-      {settings && project && <Settings project={project} agents={agents} usage={v.usage} onClose={() => setSettings(false)} />}
+      {settings && project && <Settings project={project} agents={agents} usage={v.usage} office={v.office} demo={demo} onClose={() => setSettings(false)} />}
+      {ports && <PortsDrawer projectId={projectId} agents={agents} onClose={() => setPorts(false)} />}
     </div>
   );
 }

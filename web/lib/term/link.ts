@@ -3,7 +3,7 @@
 
 "use client";
 
-export type TermKind = "agent" | "shell";
+export type TermKind = "agent" | "shell" | "fix";
 
 export type ServerFrame = { output: Uint8Array | string } | { notice: { kind: "ready" | "ended" | "error"; text: string } } | null;
 
