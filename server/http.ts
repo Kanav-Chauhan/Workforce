@@ -1,19 +1,36 @@
 // The HTTP server: hooks and MCP for agents (local only), and the owner's API.
 // Behind Caddy, only /api and the dashboard are reachable; /hook and /mcp refuse forwarded requests.
 
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import fastifyStatic from "@fastify/static";
+import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { App } from "./app.ts";
+import { registerLive } from "./live.ts";
 import { handleMcp } from "./mcp.ts";
+import { sessionName } from "./runner.ts";
+import { tmux } from "./tmux.ts";
 import { readUsage } from "./usage.ts";
 
 const bearer = (req: FastifyRequest) => (req.headers.authorization ?? "").replace(/^Bearer\s+/i, "").trim();
 /** Agents talk to us from this machine only, never through the proxy. */
+/** Keys the dashboard may press in an agent's terminal, besides typed text. */
+const KEYS = new Set(["Enter", "Escape", "Tab", "Up", "Down", "Left", "Right", "BSpace", "C-c"]);
+
+/** The built dashboard (Next.js static export). Override with WORKFORCE_WEB. */
+const webDir = () => process.env.WORKFORCE_WEB || join(dirname(fileURLToPath(import.meta.url)), "..", "web", "out");
+
 const fromAgent = (req: FastifyRequest) => !req.headers["x-forwarded-for"] && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip);
 
 export function buildHttp(app: App) {
   const f = Fastify({ logger: false, bodyLimit: 2 * 1024 * 1024 });
   const { store, work, runner, hooks, projects } = app;
   const db = store.db;
+
+  f.register(fastifyWebsocket, { options: { maxPayload: 64 * 1024 } });
+  f.register(async (scope) => registerLive(scope, app));
 
   // Errors from our own rules become a 400 with a readable message.
   f.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
@@ -82,6 +99,24 @@ export function buildHttp(app: App) {
     screen: await runner.screen(req.params.id, Number(req.query.lines ?? 60)),
   }));
 
+  // Type into an agent's terminal (the agent panel's input box). Text is typed literally; `key` presses one key.
+  f.post<{ Params: { id: string }; Body: { text?: string; key?: string; enter?: boolean } }>("/api/agents/:id/type", async (req, reply) => {
+    const a = db.agent(req.params.id);
+    if (!a) return reply.code(404).send({ error: "No such agent" });
+    const name = sessionName(a);
+    if (!(await tmux.exists(name))) return reply.code(409).send({ error: `${a.name} is not running` });
+    const text = String(req.body?.text ?? "").replace(/\r?\n/g, " ").slice(0, 4000);
+    const key = req.body?.key;
+    if (key !== undefined && !KEYS.has(key)) return reply.code(400).send({ error: "Unknown key" });
+    if (text) await tmux.type(name, text);
+    if (key) await tmux.key(name, key);
+    if (req.body?.enter) {
+      if (text) await new Promise((r) => setTimeout(r, 150));
+      await tmux.key(name, "Enter");
+    }
+    return { ok: true };
+  });
+
   f.post<{ Params: { id: string }; Body: { to?: string; text: string } }>("/api/projects/:id/message", async (req) =>
     work.message(req.params.id, "owner", req.body?.to || "lead", String(req.body?.text ?? "")),
   );
@@ -107,6 +142,19 @@ export function buildHttp(app: App) {
     if (typeof req.body?.limit === "number" && req.body.limit > 0 && req.body.limit <= 100) db.setSetting("usage_limit", String(Math.round(req.body.limit)));
     return readUsage(db);
   });
+
+  // ------------------------------------------------------------ dashboard
+
+  const web = webDir();
+  if (existsSync(join(web, "index.html"))) {
+    f.register(fastifyStatic, { root: web, prefix: "/", wildcard: true, index: "index.html", redirect: true });
+    f.setNotFoundHandler((req, reply) => {
+      if (req.method === "GET" && !req.url.startsWith("/api/") && !req.url.startsWith("/live")) return reply.code(404).type("text/html").sendFile("404.html");
+      return reply.code(404).send({ error: "Not found" });
+    });
+  } else {
+    f.get("/", async (_req, reply) => reply.type("text/plain").send("Workforce is running. The dashboard is not built yet: npm run build:web"));
+  }
 
   return f;
 }

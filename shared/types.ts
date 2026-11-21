@@ -86,3 +86,25 @@ export type LiveEvent =
   | { type: "need"; need: Need }
   | { type: "activity"; activity: Activity }
   | { type: "project"; project: Project };
+
+export interface Usage {
+  percent: number | null; // null = unknown (no status line data yet)
+  resetsAt: string | null;
+  limit: number;
+  pausedByOwner: boolean;
+  paused: boolean; // owner paused, or at/over the limit
+}
+
+/** Everything the dashboard needs, sent once when /live connects. */
+export interface LiveState {
+  projects: Project[];
+  agents: Agent[];
+  tasks: Task[];
+  needs: Need[]; // open ones
+  usage: Usage;
+  activity: Activity[];
+  messages: Message[];
+}
+
+/** What /live sends: the state first, then events. */
+export type LiveFrame = { type: "init"; state: LiveState } | { type: "usage"; usage: Usage } | LiveEvent;

@@ -4,15 +4,10 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import type { Usage } from "../shared/types.ts";
 import type { Db } from "./db.ts";
 
-export interface Usage {
-  percent: number | null; // null = unknown (no status line data yet)
-  resetsAt: string | null;
-  limit: number;
-  pausedByOwner: boolean;
-  paused: boolean; // owner paused, or at/over the limit
-}
+export type { Usage };
 
 const FILE = () => process.env.WORKFORCE_USAGE_FILE || join(homedir(), ".claude", "state", "statusline-last.json");
 

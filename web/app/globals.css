@@ -1,0 +1,103 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f5f3ef;
+  --color-panel: #ffffff;
+  --color-line: #e6e2db;
+  --color-ink: #2b2f3a;
+  --color-muted: #7a7f8c;
+  --color-soft: #f1eee9;
+  --color-accent: #4f6bed;
+  --color-accent-soft: #e9edff;
+  --color-ok: #2fae7a;
+  --color-warn: #e8a23a;
+  --color-bad: #e5534b;
+  --color-idle: #b4b8c2;
+  --color-term: #1e2433;
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --shadow-card: 0 1px 2px rgba(40, 35, 25, 0.06), 0 6px 20px rgba(40, 35, 25, 0.07);
+  --shadow-pop: 0 10px 30px rgba(60, 45, 20, 0.16);
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+button {
+  cursor: pointer;
+}
+@layer base {
+  a {
+    color: var(--color-accent);
+  }
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-[9px] border border-line bg-white px-3 py-1.5 text-[13px] text-ink transition-colors hover:bg-soft;
+  }
+  .btn-primary {
+    @apply border-accent bg-accent text-white hover:bg-[#4360e0];
+  }
+  .btn-sm {
+    @apply px-2.5 py-1 text-[12.5px];
+  }
+  .card {
+    @apply rounded-[14px] bg-panel shadow-card;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-soft px-2.5 py-1 text-[12.5px] text-[#4a4f5c];
+  }
+  .lbl {
+    @apply mb-1.5 text-[11px] uppercase tracking-[0.06em] text-muted;
+  }
+  .field {
+    @apply w-full rounded-[10px] border border-line bg-white px-3 py-2 text-[13.5px] outline-none focus:border-accent;
+  }
+  .term {
+    @apply whitespace-pre-wrap break-all rounded-[9px] bg-term p-2.5 font-mono text-[11.5px] leading-[1.5] text-[#cfd6e6];
+  }
+}
+
+.stage {
+  touch-action: none;
+  cursor: grab;
+}
+.stage.dragging {
+  cursor: grabbing;
+}
+.stage svg {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.stage .pickable {
+  cursor: pointer;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.rise {
+  animation: rise 0.25s ease;
+}
+@keyframes pulse-dot {
+  50% {
+    box-shadow: 0 0 0 7px #fff6e8;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 1.4s infinite;
+}

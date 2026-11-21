@@ -11,10 +11,13 @@
   "scripts": {
     "server": "tsx server/main.ts",
     "dev": "tsx watch server/main.ts",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && npm --prefix web run typecheck",
+    "test": "vitest run",
+    "build:web": "npm --prefix web run build"
   },
   "dependencies": {
+    "@fastify/static": "10.1.12",
+    "@fastify/websocket": "11.3.7",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.8",
     "zod": "^4.6.7"
