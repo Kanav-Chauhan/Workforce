@@ -22,7 +22,7 @@ const NS = "http://www.w3.org/2000/svg";
 
 const LIGHT: Record<Agent["state"], string> = { off: "#cfd2d8", ready: "#8fb0ff", working: "#2fae7a", "needs-you": "#e8a23a", blocked: "#e5534b" };
 
-export type Pick = { kind: "agent"; id: string } | { kind: "task"; id: string } | { kind: "ceo" } | null;
+export type Pick = { kind: "agent"; id: string } | { kind: "task"; id: string } | { kind: "parcel"; id: string } | { kind: "ceo" } | null;
 
 export interface EngineHooks {
   onPick: (p: Pick) => void;
@@ -290,6 +290,7 @@ export class OfficeEngine {
   private flyers: { g: SVGGElement; from: Pt; to: () => Pt; t0: number; ms: number; res: () => void }[] = [];
   private confetti: ({ n: SVGElement; x: number; y: number; vx: number; vy: number; r: number; vr: number; life: number } | { ring: SVGCircleElement; t0: number })[] = [];
   private tray = new Map<string, SVGGElement>(); // taskId → parcel on the gate
+  private approved = new Set<string>(); // taskIds whose parcel passed the gate (ready to merge)
   private doneTasks = new Set<string>();
   private needWaiters = new Map<number, (() => void)[]>();
   private ceoSlots: (string | null)[] = [null, null, null, null];
@@ -346,6 +347,7 @@ export class OfficeEngine {
     this.flyers = [];
     this.confetti = [];
     this.tray.clear();
+    this.approved.clear();
     this.doneTasks.clear();
     this.needWaiters.clear();
     this.ceoSlots = [null, null, null, null];
@@ -556,27 +558,51 @@ export class OfficeEngine {
     // Parcels leave the gate when their task leaves review (merged, closed or reworked).
     for (const [id, g] of this.tray) {
       const t = tasks.find((x) => x.id === id);
-      if (!t || t.status !== "review") {
-        if (t?.status !== "done") g.remove(), this.tray.delete(id);
-      }
+      // A parcel waiting to be taken back for rework stays until its author picks it up.
+      const waitingPickup = t?.status === "working" && !!t.prNumber;
+      if (!t || (t.status !== "review" && !waitingPickup)) {
+        if (t?.status !== "done") g.remove(), this.tray.delete(id), this.approved.delete(id);
+      } else if (t.status !== "review") this.approved.delete(id);
     }
+    this.layoutTray();
+  }
+
+  private takeParcel(taskId: string) {
+    this.tray.get(taskId)?.remove();
+    this.tray.delete(taskId);
+    this.approved.delete(taskId);
+    this.layoutTray();
+  }
+
+  private approve(taskId: string) {
+    this.approved.add(taskId);
+    if (!this.tray.has(taskId)) return; // marked when it arrives
+    const light = this.svg.querySelector(".gateLight");
+    light?.setAttribute("fill", "#2fae7a");
+    setTimeout(() => this.approved.size === 0 && light?.setAttribute("fill", "#c9cede"), 2400);
+    this.layoutTray();
   }
 
   private dropParcel(taskId: string, pr: number) {
     if (this.tray.has(taskId) || this.doneTasks.has(taskId)) return;
     const g = grp(this.trayG, `<g filter="url(#fSm)"><rect x="-17" y="-20" width="34" height="22" rx="3" fill="#f3c36b"/><rect x="-17" y="-20" width="34" height="6" rx="3" fill="#e8ad45"/></g>
-      ${T(0, -3, `PR #${pr}`, `text-anchor="middle" font-family="${SANS}" font-size="8" font-weight="700" fill="#6b4a10"`)}`, { "data-pick": `task:${taskId}`, class: "pickable" });
+      ${T(0, -3, `PR #${pr}`, `text-anchor="middle" font-family="${SANS}" font-size="8" font-weight="700" fill="#6b4a10"`)}
+      <g class="tick" display="none"><circle cx="15" cy="-20" r="7" fill="#2fae7a" stroke="#fff" stroke-width="2"/><path d="M11.5 -20 l2.4 2.4 l4.4 -4.6" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></g>`, { "data-pick": `parcel:${taskId}`, class: "pickable" });
     this.tray.set(taskId, g);
     this.layoutTray();
+    if (this.approved.has(taskId)) requestAnimationFrame(() => this.approve(taskId));
   }
 
+  /** Waiting parcels sit on the table in front of the gate; approved ones have passed through it. */
   private layoutTray() {
-    let i = 0;
-    for (const g of this.tray.values()) {
-      const visible = i < 3;
-      g.setAttribute("display", visible ? "" : "none");
-      g.setAttribute("transform", `translate(${1372 + i * 38},344)`);
-      i++;
+    let i = 0, j = 0;
+    for (const [taskId, g] of this.tray) {
+      const ok = this.approved.has(taskId);
+      const n = ok ? j++ : i++;
+      g.setAttribute("display", n < 3 ? "" : "none");
+      g.style.transition = "transform .9s cubic-bezier(.3,.7,.3,1)";
+      g.style.transform = ok ? `translate(${1372 + n * 38}px,228px)` : `translate(${1372 + n * 38}px,344px)`;
+      g.querySelector(".tick")?.setAttribute("display", ok ? "" : "none");
     }
   }
 
@@ -608,6 +634,20 @@ export class OfficeEngine {
         case "done":
           this.celebrateDone(a.taskId);
           break;
+        case "approve":
+          this.approve(a.taskId);
+          break;
+        case "rework": {
+          const p = this.people.get(a.agentId);
+          if (!p || p.hidden) {
+            this.takeParcel(a.taskId);
+            break;
+          }
+          p.queue.push(a);
+          p.interrupt = true;
+          void this.pump(p);
+          break;
+        }
         case "parcel":
           if (a.instant) {
             this.dropParcel(a.taskId, a.pr);
@@ -640,6 +680,7 @@ export class OfficeEngine {
         p.interrupt = false;
         if (p.hidden) {
           if (act.kind === "parcel") this.dropParcel(act.taskId, act.pr);
+          if (act.kind === "rework") this.takeParcel(act.taskId);
           continue;
         }
         await this.act(p, act);
@@ -686,6 +727,18 @@ export class OfficeEngine {
       p.carry = null;
       this.dropParcel(a.taskId, a.pr);
       await this.wait(300);
+    } else if (a.kind === "rework") {
+      // Changes requested: fetch the parcel from the gate and take it home to fix.
+      await this.walk(p, "gate");
+      p.back = true;
+      await this.wait(250);
+      const label = this.tray.get(a.taskId)?.querySelector("text")?.textContent ?? "PR";
+      this.takeParcel(a.taskId);
+      p.carry = label;
+      p.parts.ptxt!.textContent = label;
+      await this.sayFor(p, "On it!", 900);
+      await this.sit(p);
+      p.carry = null;
     }
   }
 
@@ -749,6 +802,7 @@ export class OfficeEngine {
 
   private celebrateDone(taskId: string) {
     this.doneTasks.add(taskId);
+    this.approved.delete(taskId);
     const g = this.tray.get(taskId);
     const light = this.svg.querySelector(".gateLight");
     light?.setAttribute("fill", "#2fae7a");
@@ -1197,7 +1251,7 @@ export class OfficeEngine {
         const v = hit?.getAttribute("data-pick") ?? "";
         const [kind, ...rest] = v.split(":");
         const id = rest.join(":");
-        this.hooks.onPick(kind === "agent" ? { kind, id } : kind === "task" ? { kind, id } : kind === "ceo" ? { kind } : null);
+        this.hooks.onPick(kind === "agent" || kind === "task" || kind === "parcel" ? { kind, id } : kind === "ceo" ? { kind } : null);
       }
     };
     const wheel = (e: WheelEvent) => {

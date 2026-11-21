@@ -12,7 +12,7 @@ export interface Chip {
   on?: boolean;
 }
 
-export function TopBar({ project, demo, connected, usage, chips = [], onSettings, onPorts }: { project?: Project; demo: boolean; connected: boolean; usage: Usage; chips?: Chip[]; onSettings?: () => void; onPorts?: () => void }) {
+export function TopBar({ project, demo, connected, usage, chips = [], onSettings, onPorts, onPrs, openPrs = 0 }: { project?: Project; demo: boolean; connected: boolean; usage: Usage; chips?: Chip[]; onSettings?: () => void; onPorts?: () => void; onPrs?: () => void; openPrs?: number }) {
   const [busy, setBusy] = useState(false);
   const pause = async () => {
     setBusy(true);
@@ -51,6 +51,13 @@ export function TopBar({ project, demo, connected, usage, chips = [], onSettings
       <button className="btn btn-sm hidden md:inline-flex" disabled={busy} onClick={pause} title="Paused: no new messages or tasks reach the agents">
         {usage.pausedByOwner ? "Resume team" : "Pause team"}
       </button>
+      {onPrs && (
+        <button className="btn btn-sm" onClick={onPrs} aria-label="Pull requests" title="The project's pull requests">
+          <span aria-hidden>⑂</span>
+          <span className="hidden md:inline">PRs</span>
+          {openPrs > 0 && <span className="rounded-full bg-accent-soft px-1.5 text-[11px] font-semibold text-accent">{openPrs}</span>}
+        </button>
+      )}
       {onPorts && (
         <button className="btn btn-sm" onClick={onPorts} aria-label="Ports" title="Ports the agents' programs listen on">
           <span aria-hidden>⇄</span>

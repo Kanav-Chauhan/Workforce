@@ -5,15 +5,16 @@
 import { useEffect, useState } from "react";
 import { SIGNS } from "../../shared/signs";
 import { STACK, stackPlan } from "../../shared/stacks";
-import type { Agent, McpServer, Office, PermissionStyle, Project, Usage } from "../../shared/types";
+import type { Agent, McpServer, MergeMethod, Office, PermissionStyle, Project, Reviewer, SyncStatus, Usage, Workflow } from "../../shared/types";
 import { api } from "../lib/api";
 import { store } from "../lib/live";
 import { SetupChecklist } from "./Setup";
 import { agentTitle, Avatar, roleLabel, StatePill } from "./ui";
 
-type Tab = "team" | "stack" | "mcp" | "env" | "setup" | "general" | "debug";
+type Tab = "team" | "workflow" | "stack" | "mcp" | "env" | "setup" | "general" | "debug";
 const TABS: [Tab, string][] = [
   ["team", "Team"],
+  ["workflow", "Workflow"],
   ["stack", "Stack"],
   ["mcp", "MCP servers"],
   ["env", "Environment"],
@@ -46,6 +47,8 @@ function useAction() {
 
 const Err = ({ text }: { text: string }) => (text ? <p className="mt-2 mb-0 text-[12.5px] text-bad">{text}</p> : null);
 const Intro = ({ children }: { children: React.ReactNode }) => <p className="mt-0 mb-3 text-[12.5px] text-muted">{children}</p>;
+
+export type SettingsTab = Tab;
 
 export function Settings({ project, agents, usage, office, demo, initialTab = "team", onClose }: { project: Project; agents: Agent[]; usage: Usage; office: Office; demo: boolean; initialTab?: Tab; onClose: () => void }) {
   const [tab, setTab] = useState<Tab>(initialTab);
@@ -80,6 +83,7 @@ export function Settings({ project, agents, usage, office, demo, initialTab = "t
           </div>
           <div className="min-h-0 flex-1 overflow-auto px-5 pt-2 pb-5">
             {tab === "team" && <TeamTab project={project} agents={agents} />}
+            {tab === "workflow" && <WorkflowTab project={project} agents={agents} />}
             {tab === "stack" && <StackTab project={project} />}
             {tab === "mcp" && <McpTab agents={agents} />}
             {tab === "env" && <EnvTab agents={agents} />}
@@ -623,6 +627,102 @@ function GeneralTab({ project, usage, office }: { project: Project; usage: Usage
   );
 }
 
+// ------------------------------------------------------------------ workflow
+
+const REVIEWERS: [Reviewer, string, string][] = [
+  ["owner", "You", "You review on GitHub. Your comments go to the PR's author."],
+  ["coderabbit", "CodeRabbit", "Agents wait for CodeRabbit's review and fix what it finds."],
+  ["greptile", "Greptile", "Agents wait for Greptile's review and fix what it finds."],
+  ["copilot", "Copilot", "Agents wait for GitHub Copilot's review and fix what it finds."],
+  ["custom", "A command", "Runs your command in the author's folder after each push and sends them the output."],
+  ["none", "No reviewer", "A PR is ready as soon as its checks pass."],
+];
+const METHODS: [MergeMethod, string][] = [
+  ["squash", "Squash"],
+  ["merge", "Merge commit"],
+  ["rebase", "Rebase"],
+];
+
+function WorkflowTab({ project, agents }: { project: Project; agents: Agent[] }) {
+  const [w, setW] = useState<Workflow>(project.workflow);
+  const [saved, setSaved] = useState(false);
+  const { busy, err, run } = useAction();
+  useEffect(() => setW(project.workflow), [project.workflow]);
+  const set = (patch: Partial<Workflow>) => (setW({ ...w, ...patch }), setSaved(false));
+  const dirty = JSON.stringify(w) !== JSON.stringify(project.workflow);
+  const workers = agents.filter((a) => !a.isLead);
+  const save = () => run("save", async () => (await api(`/api/projects/${enc(project.id)}`, { workflow: w }, "PATCH"), setSaved(true)));
+  return (
+    <>
+      <Intro>How a finished task gets from a pull request to merged. Workforce watches GitHub every 30 seconds and moves tasks for you.</Intro>
+
+      <div className="lbl">Who reviews</div>
+      <div className="mb-1 grid gap-2 sm:grid-cols-2">
+        {REVIEWERS.map(([id, label, help]) => (
+          <label key={id} className={`cursor-pointer rounded-xl border px-3 py-2 text-[12.5px] ${w.reviewer === id ? "border-accent bg-accent-soft" : "border-line"}`}>
+            <input type="radio" className="mr-1.5" name="reviewer" checked={w.reviewer === id} onChange={() => set({ reviewer: id })} />
+            <b>{label}</b>
+            <span className="block text-muted">{help}</span>
+          </label>
+        ))}
+      </div>
+      {w.reviewer === "custom" && (
+        <input className="field mt-1 font-mono text-[12.5px]" placeholder="e.g. npx eslint . --max-warnings 0" value={w.reviewCommand} onChange={(e) => set({ reviewCommand: e.target.value })} />
+      )}
+      {["coderabbit", "greptile", "copilot"].includes(w.reviewer) && <p className="mt-1 mb-0 text-[12px] text-muted">Install the bot on the repo on GitHub first; Workforce only reads its comments.</p>}
+
+      <div className="lbl mt-5">Who merges</div>
+      <div className="mb-1 grid gap-2 sm:grid-cols-2">
+        <label className={`cursor-pointer rounded-xl border px-3 py-2 text-[12.5px] ${w.mergeBy === "owner" ? "border-accent bg-accent-soft" : "border-line"}`}>
+          <input type="radio" className="mr-1.5" name="mergeBy" checked={w.mergeBy === "owner"} onChange={() => set({ mergeBy: "owner" })} />
+          <b>You</b> <span className="text-muted">(recommended)</span>
+          <span className="block text-muted">A Merge button shows in Needs you when a PR is ready.</span>
+        </label>
+        <label className={`cursor-pointer rounded-xl border px-3 py-2 text-[12.5px] ${w.mergeBy === "lead" ? "border-[#e8a23a] bg-[#fff8e8]" : "border-line"}`}>
+          <input type="radio" className="mr-1.5" name="mergeBy" checked={w.mergeBy === "lead"} onChange={() => set({ mergeBy: "lead" })} />
+          <b>The lead may merge</b>
+          <span className="block text-muted">Only PRs linked to a task, with passing checks and a finished review. You still can.</span>
+        </label>
+      </div>
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12.5px]">
+        <span className="text-muted">Merge as</span>
+        {METHODS.map(([id, label]) => (
+          <button key={id} className={`rounded-lg px-2.5 py-1 ${w.mergeMethod === id ? "bg-accent-soft font-semibold text-accent" : "text-[#4a4f5c] hover:bg-soft"}`} onClick={() => set({ mergeMethod: id })}>
+            {label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-1 mb-0 text-[12px] text-muted">If the repo doesn't allow that way, the first allowed one is used.</p>
+
+      <div className="lbl mt-5">Deploy step (optional)</div>
+      <input className="field font-mono text-[12.5px]" placeholder="e.g. npm run build" value={w.deployCommand} onChange={(e) => set({ deployCommand: e.target.value })} />
+      <p className="mt-1 mb-2 text-[12px] text-muted">The ticked agents run this in their folder before opening a PR and report the result. No servers are deployed.</p>
+      <div className="flex flex-wrap gap-2">
+        {workers.map((a) => (
+          <label key={a.id} className={`flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[12.5px] ${w.deployAgents.includes(a.id) ? "border-accent bg-accent-soft" : "border-line"} ${w.deployCommand.trim() ? "" : "opacity-50"}`}>
+            <input
+              type="checkbox"
+              disabled={!w.deployCommand.trim()}
+              checked={w.deployAgents.includes(a.id)}
+              onChange={(e) => set({ deployAgents: e.target.checked ? [...w.deployAgents, a.id] : w.deployAgents.filter((x) => x !== a.id) })}
+            />
+            <Avatar agent={a} size={18} />
+            {a.name}
+          </label>
+        ))}
+      </div>
+
+      <div className="mt-5 flex items-center gap-3">
+        <button className="btn btn-primary" disabled={!!busy || !dirty} onClick={save}>
+          Save
+        </button>
+        <span className="text-[12px] text-muted">{saved && !dirty ? "Saved. Agents follow the new rules after a restart." : "Agents follow changes after a restart."}</span>
+      </div>
+      <Err text={err} />
+    </>
+  );
+}
+
 // ------------------------------------------------------------------ debug
 
 interface Debug {
@@ -633,6 +733,7 @@ interface Debug {
   tmuxSessions: string[];
   liveTerminals: boolean;
   lastHooks: { agentId: string; name: string; projectId: string; event: string | null; at: string | null }[];
+  sync?: SyncStatus[];
 }
 
 const dur = (s: number) => (s < 60 ? `${s} s` : s < 3600 ? `${Math.floor(s / 60)} min` : `${Math.floor(s / 3600)} h ${Math.floor((s % 3600) / 60)} min`);
@@ -657,6 +758,20 @@ function DebugTab() {
           <dd className="m-0">{d.liveTerminals ? "on" : "off (snapshots)"}</dd>
           <dt className="text-muted">tmux sessions</dt>
           <dd className="m-0 font-mono text-[12px]">{d.tmuxSessions.length ? d.tmuxSessions.join(", ") : "none"}</dd>
+          <dt className="text-muted">GitHub sync</dt>
+          <dd className="m-0">
+            <ul className="m-0 list-none space-y-0.5 p-0">
+              {(d.sync ?? []).map((x) => (
+                <li key={x.projectId}>
+                  {x.projectId}: {x.lastAt ? `last ${new Date(x.lastAt).toLocaleTimeString()}` : "not yet"}
+                  {x.ok ? <span className="text-[#1d7a52]"> · ok</span> : <span className="text-bad"> · failed {x.failures}× ({x.error})</span>}
+                  {x.nextAt && <span className="text-muted"> · next {new Date(x.nextAt).toLocaleTimeString()}</span>}
+                  {x.rateRemaining !== null && <span className="text-muted"> · {x.rateRemaining} GitHub points left this hour</span>}
+                </li>
+              ))}
+              {!d.sync?.length && <li className="text-muted">no projects</li>}
+            </ul>
+          </dd>
           <dt className="text-muted">Last hooks</dt>
           <dd className="m-0">
             <ul className="m-0 list-none space-y-0.5 p-0">

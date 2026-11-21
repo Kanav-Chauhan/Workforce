@@ -7,7 +7,7 @@ const agent = (sign: string, patch: Partial<Agent> = {}): Agent => ({
   id: `p.${sign}`, projectId: "p", sign, name: sign, isLead: sign === "leo", extraRole: "", model: "", sessionId: "", state: "ready", note: "", taskId: null, stateSince: at, ...patch,
 });
 const task = (patch: Partial<Task>): Task => ({
-  id: "P-1", projectId: "p", title: "t", details: "", files: [], doneWhen: "", dependsOn: [], phase: "", status: "todo", ownerId: null, prNumber: null, note: "", createdAt: at, updatedAt: at, ...patch,
+  id: "P-1", projectId: "p", title: "t", details: "", files: [], doneWhen: "", dependsOn: [], phase: "", status: "todo", ownerId: null, prNumber: null, note: "", deployResult: "", createdAt: at, updatedAt: at, ...patch,
 });
 const need = (patch: Partial<Need>): Need => ({ id: 1, projectId: "p", agentId: "p.aries", kind: "permission", title: "Aries: Running npm install zod", details: "", status: "open", answer: "", at, ...patch });
 const msg = (patch: Partial<Message>): Message => ({ id: 1, projectId: "p", fromId: "p.leo", toId: "p.aries", text: "hi", delivered: false, at, ...patch });
@@ -35,6 +35,16 @@ describe("director: events become office acts", () => {
     const d = director();
     expect(d.apply({ type: "message", message: msg({ id: 2, fromId: "owner" }) })).toEqual([{ kind: "envelope", toId: "p.aries", from: "owner" }]);
     expect(d.apply({ type: "message", message: msg({ id: 3, fromId: "workforce" }) })[0]).toMatchObject({ kind: "envelope", from: "workforce" });
+  });
+
+  it("changes requested: the parcel goes back to its author; ready: it passes the gate", () => {
+    const d = director();
+    d.apply({ type: "task", task: task({ status: "review", prNumber: 7, ownerId: "p.aries" }) });
+    expect(d.apply({ type: "task", task: task({ status: "working", prNumber: 7, ownerId: "p.aries" }) })).toEqual([{ kind: "rework", agentId: "p.aries", taskId: "P-1" }]);
+    const pr = { projectId: "p", number: 7, taskId: "P-1", authorId: "p.aries", title: "[P-1] t", url: "u", state: "open" as const, draft: false, branch: "p-1", headSha: "a", review: "none" as const, checks: "passing" as const, mergeable: "yes" as const, comments: 0, ready: false, updatedAt: at };
+    expect(d.apply({ type: "pr", pr })).toEqual([]);
+    expect(d.apply({ type: "pr", pr: { ...pr, ready: true } })).toEqual([{ kind: "approve", taskId: "P-1" }]);
+    expect(d.apply({ type: "pr", pr: { ...pr, ready: true, comments: 1 } })).toEqual([]);
   });
 
   it("ignores other projects", () => {

@@ -4,7 +4,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { Activity, LiveEvent, LiveFrame, LiveState, Message, Need, Task, Agent, Project, Usage } from "../../shared/types";
+import type { Activity, LiveEvent, LiveFrame, LiveState, Message, Need, Task, Agent, Project, PullRequest, Usage } from "../../shared/types";
 
 export interface View extends LiveState {
   connected: boolean;
@@ -25,6 +25,7 @@ const EMPTY: View = {
   activity: [],
   messages: [],
   office: { name: "" },
+  prs: [],
   connected: false,
   everConnected: false,
   retryAt: null,
@@ -76,7 +77,7 @@ export class LiveStore {
     const v = this.view;
     switch (f.type) {
       case "init":
-        this.set({ ...v, ...f.state, office: f.state.office ?? { name: "" }, epoch: v.epoch + 1 });
+        this.set({ ...v, ...f.state, office: f.state.office ?? { name: "" }, prs: f.state.prs ?? [], epoch: v.epoch + 1 });
         break;
       case "usage":
         this.set({ ...v, usage: f.usage });
@@ -92,6 +93,9 @@ export class LiveStore {
         break;
       case "office":
         this.set({ ...v, office: f.office });
+        break;
+      case "pr":
+        this.set({ ...v, prs: upsert<PullRequest, string>(v.prs, f.pr, (x) => `${x.projectId}#${x.number}`) });
         break;
       case "task":
         this.set({ ...v, tasks: upsert<Task, string>(v.tasks, f.task, (x) => x.id) });

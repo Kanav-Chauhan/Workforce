@@ -10,6 +10,7 @@ import { useLive } from "../lib/live";
 import type { Pick } from "../lib/office/engine";
 import { BoardSwitcher, PortsDrawer } from "./Extras";
 import { NeedsStrip } from "./NeedsStrip";
+import { PrDrawer } from "./Prs";
 import { Office } from "./Office";
 import { AgentPanel, CeoPanel, TaskPanel } from "./Panels";
 import { Settings } from "./Settings";
@@ -129,6 +130,9 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
   const [min, setMin] = useState(false);
   const [settings, setSettings] = useState(false);
   const [ports, setPorts] = useState(false);
+  /** The PR drawer: false = closed, else the task to highlight ("" = none). */
+  const [prPanel, setPrPanel] = useState<string | false>(false);
+  const prs = useMemo(() => v.prs.filter((p) => p.projectId === projectId), [v.prs, projectId]);
   const boards = useMemo(() => (project ? boardsOf(project, tasks) : ["Main"]), [project, tasks]);
   const [boardPick, setBoardPick] = useState("");
   const board = boards.find((b) => b === boardPick) ?? boards[0]!;
@@ -146,6 +150,7 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
   }, []);
 
   const pick = (p: Pick) => {
+    if (p?.kind === "parcel") return setPrPanel(p.id);
     setSel(p);
     if (p) {
       setTab("details");
@@ -196,6 +201,8 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
         ]}
         onSettings={() => setSettings(true)}
         onPorts={() => setPorts(true)}
+        onPrs={() => setPrPanel("")}
+        openPrs={prs.filter((p) => p.state === "open").length}
       />
       <main
         className={`grid min-h-0 grid-cols-[minmax(0,1fr)] grid-rows-[1fr_auto] md:grid-rows-1 md:transition-[grid-template-columns] md:duration-300 ${selAgent && wide && bigScreen ? "md:grid-cols-[1fr_minmax(340px,600px)]" : "md:grid-cols-[1fr_340px]"}`}
@@ -206,7 +213,7 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
               <BoardSwitcher compact projectId={projectId} boards={boards} board={board} counts={counts} onPick={setBoardPick} />
             </div>
           )}
-          <NeedsStrip needs={needs} agents={agents} />
+          <NeedsStrip needs={needs} agents={agents} prs={prs} />
           {agents.length > 0 && agents.every((a) => a.state === "off") && (
             <div data-hud className="absolute bottom-16 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-white px-4 py-2.5 text-[13px] shadow-pop md:bottom-14">
               The team is off.
@@ -248,6 +255,7 @@ export function ProjectScreen({ projectId, demo }: { projectId: string; demo: bo
         </aside>
       </main>
       {settings && project && <Settings project={project} agents={agents} usage={v.usage} office={v.office} demo={demo} onClose={() => setSettings(false)} />}
+      {prPanel !== false && project && <PrDrawer project={project} prs={prs} tasks={tasks} agents={agents} focusTask={prPanel || null} onClose={() => setPrPanel(false)} />}
       {ports && <PortsDrawer projectId={projectId} agents={agents} onClose={() => setPorts(false)} />}
     </div>
   );

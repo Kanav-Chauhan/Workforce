@@ -1,7 +1,7 @@
 // Demo mode (/?demo=1): the preview's story, played as fake live events through the same store,
 // director and office as the real thing. Buttons work too: Allow/Deny, answers, messages, start/stop.
 
-import type { Activity, Agent, LiveFrame, LiveState, McpServer, Message, Need, Project, SetupCheck, Task } from "../../shared/types";
+import { DEFAULT_WORKFLOW, type Activity, type Agent, type LiveFrame, type LiveState, type McpServer, type Message, type Need, type Project, type PullRequest, type SetupCheck, type Task } from "../../shared/types";
 import { stackPlan, STACK } from "../../shared/stacks";
 import type { TermEvents, TermKind, TermLink } from "./term/link";
 
@@ -14,12 +14,14 @@ export class DemoStory {
   private agents = new Map<string, Agent>();
   private tasks = new Map<string, Task>();
   private needs = new Map<number, Need>();
+  private prs = new Map<number, PullRequest>();
+  private merges = new Map<number, () => void>();
   private seq = 1;
   private run = 0;
   private waits = new Map<number, (v: { allow: boolean; answer: string }) => void>();
   private screens = new Map<string, string[]>();
   private timers = new Set<ReturnType<typeof setTimeout>>();
-  private project: Project = { id: P, repo: "you/demo-repo", name: "demo-repo", prefix: "WF", defaultBranch: "main", permissionStyle: "careful", createdAt: iso(), stack: ["nextjs", "react", "tailwind"], boards: ["v1", "Polish"], planExport: false };
+  private project: Project = { id: P, repo: "you/demo-repo", name: "demo-repo", prefix: "WF", defaultBranch: "main", permissionStyle: "careful", createdAt: iso(), stack: ["nextjs", "react", "tailwind"], boards: ["v1", "Polish"], planExport: false, workflow: { ...DEFAULT_WORKFLOW, reviewer: "coderabbit", deployCommand: "npm run build", deployAgents: [`${P}.aries`] } };
   private officeName = "Demo studio";
   private mcp: McpServer[] = [{ id: 1, name: "playwright", kind: "stdio", command: "npx", args: ["-y", "@playwright/mcp@latest"], url: "", headerName: "", envName: "", agentIds: [`${P}.virgo`] }];
   private env = new Map<string, Set<string>>([[`${P}.aries`, new Set(["STRIPE_SECRET_KEY"])]]);
@@ -44,7 +46,14 @@ export class DemoStory {
     this.agents.clear();
     this.tasks.clear();
     this.needs.clear();
+    this.prs.clear();
+    this.merges.clear();
     this.screens.clear();
+    const old: PullRequest = {
+      projectId: P, number: 2, taskId: null, authorId: null, title: "Set up Next.js and Tailwind", url: "https://github.com/you/demo-repo/pull/2", state: "merged", draft: false, branch: "setup",
+      headSha: "0a1b2c", review: "approved", checks: "passing", mergeable: "yes", comments: 2, ready: false, updatedAt: new Date(Date.now() - 86400_000).toISOString(),
+    };
+    this.prs.set(2, old);
     const mk = (sign: string, name: string, isLead: boolean, role = "", color = ""): Agent => ({
       id: `${P}.${sign}`, projectId: P, sign, name, isLead, extraRole: "", model: "", role, color, folder: "", sessionId: "", state: "ready", note: "Waiting for instructions", taskId: null, stateSince: iso(),
     });
@@ -56,7 +65,7 @@ export class DemoStory {
     this.agents.set(quinn.id, quinn);
     const polish: Task = {
       id: "WF-3", projectId: P, title: "Dark mode toggle", details: "A toggle in the header that remembers the choice.", files: ["components/Header.tsx"], doneWhen: "Toggle works and survives a reload",
-      dependsOn: [], phase: "Polish", status: "todo", ownerId: null, prNumber: null, note: "", createdAt: iso(), updatedAt: iso(),
+      dependsOn: [], phase: "Polish", status: "todo", ownerId: null, prNumber: null, note: "", deployResult: "", createdAt: iso(), updatedAt: iso(),
     };
     this.tasks.set(polish.id, polish);
     return {
@@ -68,7 +77,41 @@ export class DemoStory {
       activity: [{ id: this.seq++, projectId: P, agentId: null, text: "Demo: a scripted story with fake agents. Nothing real runs.", at: iso() }],
       messages: [],
       office: { name: this.officeName },
+      prs: [...this.prs.values()],
     };
+  }
+
+  private pr(number: number, patch: Partial<PullRequest>) {
+    const before = this.prs.get(number);
+    const p: PullRequest = {
+      projectId: P, number, taskId: null, authorId: null, title: "", url: `https://github.com/you/demo-repo/pull/${number}`, state: "open", draft: false, branch: "", headSha: "1",
+      review: "none", checks: "pending", mergeable: "yes", comments: 0, ready: false, updatedAt: iso(), ...before, ...patch,
+    };
+    p.updatedAt = iso();
+    this.prs.set(number, p);
+    this.emit({ type: "pr", pr: p });
+  }
+
+  /** The PR is ready: a merge item in Needs you; resolves when you press Merge (or by itself after a while). */
+  private async readyToMerge(number: number, taskId: string, title: string, sign: string) {
+    this.pr(number, { ready: true, checks: "passing" });
+    this.act(null, `PR #${number} is ready to merge (you)`);
+    const n: Need = { id: this.seq++, projectId: P, agentId: this.id(sign), kind: "merge", title: `PR #${number} is ready to merge: ${taskId} ${title}`, details: `https://github.com/you/demo-repo/pull/${number}`, status: "open", answer: "", at: iso() };
+    this.needs.set(n.id, n);
+    this.emit({ type: "need", need: n });
+    const merged = new Promise<void>((res) => this.merges.set(number, res));
+    await this.orAuto(merged, 14000, () => this.merge(number, "(demo: merged by itself)"));
+  }
+
+  private merge(number: number, note = "") {
+    const p = this.prs.get(number);
+    if (!p || p.state !== "open") throw new Error(`PR #${number} is not open`);
+    this.pr(number, { state: "merged", ready: false });
+    for (const n of this.needs.values()) if (n.kind === "merge" && n.status === "open" && n.title.startsWith(`PR #${number} `)) this.closeNeed(n.id, "Merged", true);
+    this.act(null, `You merged PR #${number} (squash)${note ? ` ${note}` : ""}`);
+    this.merges.get(number)?.();
+    this.merges.delete(number);
+    return this.prs.get(number);
   }
 
   private id = (sign: string) => `${P}.${sign}`;
@@ -188,7 +231,7 @@ export class DemoStory {
   private task(id: string, patch: Partial<Task>) {
     const before = this.tasks.get(id);
     const t: Task = {
-      id, projectId: P, title: "", details: "", files: [], doneWhen: "", dependsOn: [], phase: "", status: "todo", ownerId: null, prNumber: null, note: "", createdAt: iso(), updatedAt: iso(),
+      id, projectId: P, title: "", details: "", files: [], doneWhen: "", dependsOn: [], phase: "", status: "todo", ownerId: null, prNumber: null, note: "", deployResult: "", createdAt: iso(), updatedAt: iso(),
       ...before, ...patch,
     };
     t.updatedAt = iso();
@@ -311,33 +354,51 @@ export class DemoStory {
     this.agent("aries", { note: "Editing app/health/page.tsx" });
     await this.sleep(2500);
     this.task("WF-2", { status: "review", prNumber: 4 });
+    this.pr(4, { taskId: "WF-2", authorId: this.id("virgo"), title: "[WF-2] Site footer", branch: "wf-2" });
     this.act("virgo", "Virgo: WF-2 in review (PR #4)");
     this.agent("virgo", { state: "ready", note: "PR #4 in review", taskId: "WF-2" });
     await this.sleep(4500);
     this.msg("virgo", "leo", "PR #4 is ready for review");
     await this.sleep(6000);
     this.msg("leo", "virgo", "Nice. The owner will merge it.");
-    await this.sleep(3500);
+    this.pr(4, { checks: "passing", review: "none", comments: 1 });
+    this.act(null, "CodeRabbit reviewed PR #4: no changes");
+    await this.sleep(1500);
 
-    // Aries finishes too.
-    this.agent("aries", { note: "Running npm test" });
+    // Aries finishes too: deploy step, then PR #5.
+    this.agent("aries", { note: "Running npm run build (deploy step)" });
     await this.sleep(2200);
-    this.task("WF-1", { status: "review", prNumber: 5 });
+    this.task("WF-1", { status: "review", prNumber: 5, deployResult: "passed" });
+    this.pr(5, { taskId: "WF-1", authorId: this.id("aries"), title: "[WF-1] /health page", branch: "wf-1" });
+    this.act("aries", "Aries's deploy step for WF-1: passed");
     this.act("aries", "Aries: WF-1 in review (PR #5)");
     this.agent("aries", { state: "ready", note: "PR #5 in review" });
-    await this.sleep(4000);
 
-    // You merge on GitHub.
+    // You merge PR #4 (Merge in Needs you, or the PR list).
+    await this.readyToMerge(4, "WF-2", "Site footer", "virgo");
     this.task("WF-2", { status: "done" });
-    this.act(null, "You merged PR #4 · WF-2 done");
-    this.msg("workforce", "leo", "PR #4 was merged. WF-2 is done.");
+    this.act(null, "PR #4 merged · WF-2 done");
+    this.msg("workforce", "leo", "PR #4 (WF-2 Site footer) was merged. WF-2 is done.");
     this.agent("virgo", { state: "ready", note: "Finished, ready for more", taskId: null });
-    await this.sleep(4000);
-    this.msg("aries", "leo", "PR #5 is ready too");
+    await this.sleep(2500);
+
+    // CodeRabbit asks for a change on PR #5: the parcel goes back to Aries.
+    this.pr(5, { checks: "passing", review: "changes", comments: 2 });
+    this.act(null, "PR #5: 1 new review item from coderabbitai → Aries");
+    this.msg("workforce", "aries", "New review feedback on PR #5 (WF-1 /health page):\n- app/health/page.tsx:12 (coderabbitai): Return the version from package.json instead of a hard-coded string.");
+    this.task("WF-1", { status: "working", note: "Fixing review feedback on PR #5" });
+    this.agent("aries", { state: "working", note: "Editing app/health/page.tsx" });
     await this.sleep(6000);
+    this.agent("aries", { note: "git push" });
+    this.pr(5, { headSha: "2", review: "none", checks: "pending", comments: 3 });
+    this.task("WF-1", { status: "review", note: "" });
+    this.act("aries", "Aries pushed a fix to PR #5");
+    this.agent("aries", { state: "ready", note: "PR #5 in review" });
+    await this.sleep(3000);
+    await this.readyToMerge(5, "WF-1", "/health page", "aries");
     this.task("WF-1", { status: "done" });
-    this.act(null, "You merged PR #5 · WF-1 done");
-    this.msg("workforce", "leo", "PR #5 was merged. WF-1 is done.");
+    this.act(null, "PR #5 merged · WF-1 done");
+    this.msg("workforce", "leo", "PR #5 (WF-1 /health page) was merged. WF-1 is done.");
     this.agent("aries", { state: "ready", note: "Finished, ready for more", taskId: null });
     this.agent("leo", { state: "working", note: "Telling the owner: all done" });
     await this.sleep(2500);
@@ -383,6 +444,9 @@ export class DemoStory {
       for (const a of this.agents.values()) this.agent(a.sign, m[1] === "stop" ? { state: "off", note: "Stopped" } : { state: "ready", note: "Started" });
       return { ok: true };
     }
+    if ((m = /^\/api\/projects\/[^/]+\/prs\/(\d+)\/merge$/.exec(path))) return this.merge(Number(m[1]));
+    if (/^\/api\/projects\/[^/]+\/prs$/.test(path)) return { prs: [...this.prs.values()] };
+    if (/^\/api\/projects\/[^/]+\/sync$/.test(path)) return this.syncStatus();
     if (/^\/api\/projects\/[^/]+\/message$/.test(path)) {
       const text = String(b.text ?? "").trim() || "Add a /health page and a footer";
       void this.loop(text);
@@ -433,6 +497,11 @@ export class DemoStory {
     if (/^\/api\/projects\/[^/]+$/.test(path) && method === "PATCH") {
       if (b.permissionStyle === "careful" || b.permissionStyle === "trusted") this.project = { ...this.project, permissionStyle: b.permissionStyle };
       if (typeof b.planExport === "boolean") this.project = { ...this.project, planExport: b.planExport };
+      if (b.workflow && typeof b.workflow === "object") {
+        const w = { ...this.project.workflow, ...(b.workflow as Partial<Project["workflow"]>) };
+        if (w.reviewer === "custom" && !w.reviewCommand.trim()) throw new Error("Give the review command to run");
+        this.project = { ...this.project, workflow: w };
+      }
       this.emit({ type: "project", project: this.project });
       return this.project;
     }
@@ -512,9 +581,14 @@ export class DemoStory {
         pid: 1234,
         tmuxSessions: [...this.agents.values()].filter((a) => a.state !== "off").map((a) => `wf-${P}-${a.sign}`),
         liveTerminals: true,
+        sync: [this.syncStatus()],
         lastHooks: [...this.agents.values()].map((a) => ({ agentId: a.id, name: a.name, projectId: P, event: a.state === "off" ? null : "Stop", at: a.state === "off" ? null : iso() })),
       };
     return undefined;
+  }
+
+  private syncStatus() {
+    return { projectId: P, lastAt: new Date(Date.now() - 12_000).toISOString(), ok: true, error: "", nextAt: new Date(Date.now() + 18_000).toISOString(), failures: 0, rateRemaining: 4893, rateResetAt: null };
   }
 
   private stackReport() {

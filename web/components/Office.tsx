@@ -29,7 +29,7 @@ export function Office({ projectId, selected, onPick, board, boards, officeName,
       const m = mine(v);
       engine.setTeam(m.agents);
       engine.sync(m.agents, m.tasks, m.needs);
-      engine.play(director.init({ ...m, messages: v.messages }));
+      engine.play(director.init({ ...m, messages: v.messages, prs: v.prs }));
     };
     start(store.view);
     const off = store.onEvent((e, v) => {
@@ -43,7 +43,7 @@ export function Office({ projectId, selected, onPick, board, boards, officeName,
       if (e.type === "agent" && e.agent.projectId === projectId && engine.setTeam(m.agents)) {
         // Someone joined or left: the office was redrawn, start from the snapshot.
         engine.sync(m.agents, m.tasks, m.needs);
-        engine.play(director.init({ ...m, messages: v.messages }));
+        engine.play(director.init({ ...m, messages: v.messages, prs: v.prs }));
         return;
       }
       const acts = director.apply(e);

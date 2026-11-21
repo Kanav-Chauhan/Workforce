@@ -1,7 +1,7 @@
 // Turns live events into things the office should act out. Pure: no DOM, no timers, so it is tested.
 // The office engine plays the returned acts; per-agent acts go through an ActQueue so bursts stay tidy.
 
-import type { Agent, LiveEvent, LiveState, Need, Task } from "../../shared/types";
+import type { Agent, LiveEvent, LiveState, Need, PullRequest, Task } from "../../shared/types";
 
 export type Act =
   /** A walks to B's cabin, says `text`, walks back. */
@@ -14,13 +14,17 @@ export type Act =
   | { kind: "needDone"; needId: number }
   /** The task's owner carries a parcel "PR #n" to the review gate. */
   | { kind: "parcel"; agentId: string; taskId: string; pr: number; instant?: boolean }
+  /** Changes requested: the author walks to the gate, takes the parcel back to their cabin. */
+  | { kind: "rework"; agentId: string; taskId: string }
+  /** The PR is ready to merge: its parcel passes through the gate and waits for you there. */
+  | { kind: "approve"; taskId: string; instant?: boolean }
   /** Merged/done: confetti at the gate, its parcel goes away. */
   | { kind: "done"; taskId: string; pr: number | null }
   /** The agent's state changed: sit, type, dim the cabin… */
   | { kind: "pose"; agentId: string };
 
 /** Acts that make one agent walk, so they wait their turn in that agent's queue. */
-export const queuedFor = (a: Act): string | null => (a.kind === "visit" || a.kind === "askCeo" || a.kind === "parcel" ? a.agentId : null);
+export const queuedFor = (a: Act): string | null => (a.kind === "visit" || a.kind === "askCeo" || a.kind === "parcel" || a.kind === "rework" ? a.agentId : null);
 
 const clip = (s: string, n: number) => {
   const t = s.replace(/\s+/g, " ").trim();
@@ -54,11 +58,13 @@ export class Director {
   private tasks = new Map<string, Task>();
   private needs = new Map<number, Need>();
   private seenMessages = new Set<number>();
+  private prs = new Map<number, PullRequest>();
 
   constructor(readonly projectId: string) {}
 
   /** Start from a snapshot: open needs put agents at the CEO cabin, PRs in review sit on the gate. */
-  init(state: Pick<LiveState, "agents" | "tasks" | "needs" | "messages">): Act[] {
+  init(state: Pick<LiveState, "agents" | "tasks" | "needs" | "messages"> & { prs?: PullRequest[] }): Act[] {
+    this.prs.clear();
     this.agents.clear();
     this.tasks.clear();
     this.needs.clear();
@@ -70,6 +76,11 @@ export class Director {
       if (t.projectId !== this.projectId) continue;
       this.tasks.set(t.id, t);
       if (t.status === "review" && t.prNumber && t.ownerId && this.agents.has(t.ownerId)) acts.push({ kind: "parcel", agentId: t.ownerId, taskId: t.id, pr: t.prNumber, instant: true });
+    }
+    for (const p of state.prs ?? []) {
+      if (p.projectId !== this.projectId) continue;
+      this.prs.set(p.number, p);
+      if (p.ready && p.state === "open" && p.taskId && this.tasks.get(p.taskId)?.status === "review") acts.push({ kind: "approve", taskId: p.taskId, instant: true });
     }
     for (const n of state.needs) {
       if (n.projectId !== this.projectId || n.status !== "open") continue;
@@ -124,7 +135,15 @@ export class Director {
         const newPr = t.status === "review" && !!t.prNumber && (before?.status !== "review" || before.prNumber !== t.prNumber);
         if (newPr && t.ownerId && this.agents.has(t.ownerId)) acts.push({ kind: "parcel", agentId: t.ownerId, taskId: t.id, pr: t.prNumber! });
         if (t.status === "done" && before && before.status !== "done") acts.push({ kind: "done", taskId: t.id, pr: t.prNumber });
+        if (before?.status === "review" && t.status === "working" && t.prNumber && t.ownerId && this.agents.has(t.ownerId)) acts.push({ kind: "rework", agentId: t.ownerId, taskId: t.id });
         return acts;
+      }
+      case "pr": {
+        const p = e.pr;
+        if (p.projectId !== this.projectId) return [];
+        const before = this.prs.get(p.number);
+        this.prs.set(p.number, p);
+        return p.ready && p.state === "open" && !before?.ready && p.taskId ? [{ kind: "approve", taskId: p.taskId }] : [];
       }
       default:
         return [];

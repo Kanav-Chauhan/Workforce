@@ -116,6 +116,7 @@ export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: strin
   );
 
   f.post<{ Params: { id: string } }>("/api/projects/:id/sync", async (req) => app.prSync.syncNow(mustProject(req.params.id).id));
+  f.get<{ Params: { id: string } }>("/api/projects/:id/sync", async (req) => app.prSync.status().find((x) => x.projectId === mustProject(req.params.id).id));
 
   f.get<{ Params: { id: string } }>("/api/projects/:id/plan-export", async (req) => {
     const project = mustProject(req.params.id);
