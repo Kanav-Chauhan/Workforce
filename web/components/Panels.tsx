@@ -1,10 +1,11 @@
 "use client";
 
-// The cards in the right column: an agent (with its live screen), a task, or you (the CEO).
+// The cards in the right column: an agent (with its live terminal), a task, or you (the CEO).
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import type { Activity, Agent, Message, Need, Project, Task } from "../../shared/types";
 import { api } from "../lib/api";
+import { TerminalCard } from "./Terminal";
 import { agentTitle, ago, Avatar, clock, Dot, StatePill, TASK_STATUS } from "./ui";
 
 function Close({ onClose }: { onClose: () => void }) {
@@ -15,87 +16,9 @@ function Close({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** The agent's terminal: polled every second, typed into through /type. */
-function Screen({ agent, full, onFull }: { agent: Agent; full: boolean; onFull: (v: boolean) => void }) {
-  const [screen, setScreen] = useState("");
-  const [text, setText] = useState("");
-  const [err, setErr] = useState("");
-  const box = useRef<HTMLPreElement>(null);
-
-  useEffect(() => {
-    let live = true;
-    let timer: ReturnType<typeof setTimeout>;
-    const tick = async () => {
-      try {
-        const r = await api<{ screen: string }>(`/api/agents/${encodeURIComponent(agent.id)}/screen?lines=${full ? 200 : 60}`);
-        if (live) setScreen(r.screen);
-      } catch {
-        /* the next tick tries again */
-      }
-      if (live) timer = setTimeout(tick, document.hidden ? 4000 : 1000);
-    };
-    void tick();
-    return () => {
-      live = false;
-      clearTimeout(timer);
-    };
-  }, [agent.id, full]);
-
-  useEffect(() => {
-    const b = box.current;
-    if (b) b.scrollTop = b.scrollHeight;
-  }, [screen]);
-
-  const send = async (body: { text?: string; key?: string; enter?: boolean }) => {
-    setErr("");
-    try {
-      await api(`/api/agents/${encodeURIComponent(agent.id)}/type`, body);
-    } catch (e) {
-      setErr((e as Error).message);
-    }
-  };
-
-  const keys: [string, string][] = [["Enter", "⏎"], ["Escape", "Esc"], ["Up", "↑"], ["Down", "↓"], ["Tab", "Tab"]];
-  return (
-    <div className={full ? "fixed inset-0 z-50 flex flex-col gap-2 bg-[#141925] p-3" : ""}>
-      <div className="mb-1.5 flex items-center">
-        <div className={`lbl !mb-0 ${full ? "!text-[#9fb3d9]" : ""}`}>{full ? `${agentTitle(agent)} · terminal` : "Terminal"}</div>
-        <button className={`ml-auto text-[12px] ${full ? "text-[#cfd6e6]" : "text-accent"}`} onClick={() => onFull(!full)}>
-          {full ? "Close full screen" : "Full screen"}
-        </button>
-      </div>
-      <pre ref={box} className={`term m-0 overflow-auto ${full ? "flex-1 text-[12.5px]" : "h-[190px]"}`}>
-        {agent.state === "off" && !screen ? "Not running. Press Start." : screen || "…"}
-      </pre>
-      <form
-        className="mt-1.5 flex gap-1.5"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send({ text, enter: true });
-          setText("");
-        }}
-      >
-        <input className={`field min-w-0 flex-1 py-1.5 font-mono text-[12.5px] ${full ? "border-[#2c3448] bg-[#1e2433] text-[#eef3ff]" : ""}`} placeholder="Type to the agent, Enter sends" value={text} onChange={(e) => setText(e.target.value)} disabled={agent.state === "off"} />
-        <button className="btn btn-sm" disabled={agent.state === "off"}>
-          Send
-        </button>
-      </form>
-      <div className="mt-1.5 flex flex-wrap gap-1">
-        {keys.map(([k, label]) => (
-          <button key={k} className={`rounded-md border px-2 py-0.5 font-mono text-[11.5px] ${full ? "border-[#2c3448] text-[#cfd6e6]" : "border-line text-[#4a4f5c] hover:bg-soft"}`} disabled={agent.state === "off"} onClick={() => void send({ key: k })}>
-            {label}
-          </button>
-        ))}
-      </div>
-      {err && <p className="mt-1 text-[12px] text-bad">{err}</p>}
-    </div>
-  );
-}
-
 export function AgentPanel({ agent, tasks, activity, messages, onClose, onTask }: { agent: Agent; tasks: Task[]; activity: Activity[]; messages: Message[]; onClose: () => void; onTask: (id: string) => void }) {
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
-  const [full, setFull] = useState(false);
   const task = tasks.find((t) => t.id === agent.taskId) ?? tasks.find((t) => t.ownerId === agent.id && t.status !== "done");
   const recent = activity.filter((a) => a.agentId === agent.id).slice(-4).reverse();
   const talk = messages.filter((m) => m.fromId === agent.id || m.toId === agent.id).slice(-3).reverse();
@@ -169,7 +92,7 @@ export function AgentPanel({ agent, tasks, activity, messages, onClose, onTask }
           </ul>
         </>
       )}
-      <Screen agent={agent} full={full} onFull={setFull} />
+      <TerminalCard agent={agent} />
     </div>
   );
 }

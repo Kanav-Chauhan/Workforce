@@ -101,3 +101,13 @@ button:disabled {
 .pulse-dot {
   animation: pulse-dot 1.4s infinite;
 }
+
+/* The live terminal: xterm draws its own scrollbar area; keep it light and quiet. */
+.xterm-host .xterm-viewport {
+  background-color: transparent !important;
+  scrollbar-width: thin;
+  scrollbar-color: #d6d1c8 transparent;
+}
+.xterm-host .xterm {
+  height: 100%;
+}

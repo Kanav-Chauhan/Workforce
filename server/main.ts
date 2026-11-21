@@ -4,10 +4,13 @@
 import { createApp } from "./app.ts";
 import { buildHttp } from "./http.ts";
 import { dbFile, port } from "./paths.ts";
+import { loadNodePty } from "./terminals.ts";
 import { SOCKET } from "./tmux.ts";
 
 const app = createApp();
-const http = buildHttp(app);
+const pty = await loadNodePty();
+if (!pty.spawn) console.warn(`Live terminals are off (${pty.reason}); the dashboard shows snapshots instead.`);
+const http = buildHttp(app, pty);
 
 await http.listen({ host: "127.0.0.1", port: port() });
 app.courier.startSweep();

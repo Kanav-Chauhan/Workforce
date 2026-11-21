@@ -42,8 +42,8 @@ export const tmux = {
     const envArgs = Object.entries(env).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
     const r = await tm(["new-session", "-d", "-s", name, "-x", "200", "-y", "50", "-c", cwd, ...envArgs, command]);
     if (!r.ok) throw new Error(`tmux could not start ${name}: ${r.stderr.trim()}`);
-    await tm(["set-option", "-t", `=${name}`, "remain-on-exit", "on"]);
-    await tm(["set-option", "-t", `=${name}`, "history-limit", "20000"]);
+    await tm(["set-option", "-t", target(name), "remain-on-exit", "on"]);
+    await tm(["set-option", "-t", target(name), "history-limit", "20000"]);
   },
 
   async kill(name: string) {

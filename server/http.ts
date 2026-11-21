@@ -9,6 +9,7 @@ import fastifyWebsocket from "@fastify/websocket";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import type { App } from "./app.ts";
 import { registerLive } from "./live.ts";
+import { registerTerminals, type SpawnPty } from "./terminals.ts";
 import { handleMcp } from "./mcp.ts";
 import { sessionName } from "./runner.ts";
 import { tmux } from "./tmux.ts";
@@ -24,13 +25,14 @@ const webDir = () => process.env.WORKFORCE_WEB || join(dirname(fileURLToPath(imp
 
 const fromAgent = (req: FastifyRequest) => !req.headers["x-forwarded-for"] && ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.ip);
 
-export function buildHttp(app: App) {
+export function buildHttp(app: App, pty: { spawn: SpawnPty | null; reason: string } = { spawn: null, reason: "not loaded" }) {
   const f = Fastify({ logger: false, bodyLimit: 2 * 1024 * 1024 });
   const { store, work, runner, hooks, projects } = app;
   const db = store.db;
 
   f.register(fastifyWebsocket, { options: { maxPayload: 64 * 1024 } });
   f.register(async (scope) => registerLive(scope, app));
+  f.register(async (scope) => registerTerminals(scope, app, pty.spawn, pty.reason));
 
   // Errors from our own rules become a 400 with a readable message.
   f.setErrorHandler((err: Error & { statusCode?: number }, _req, reply) => {
@@ -149,7 +151,7 @@ export function buildHttp(app: App) {
   if (existsSync(join(web, "index.html"))) {
     f.register(fastifyStatic, { root: web, prefix: "/", wildcard: true, index: "index.html", redirect: true });
     f.setNotFoundHandler((req, reply) => {
-      if (req.method === "GET" && !req.url.startsWith("/api/") && !req.url.startsWith("/live")) return reply.code(404).type("text/html").sendFile("404.html");
+      if (req.method === "GET" && !req.url.startsWith("/api/") && !req.url.startsWith("/live") && !req.url.startsWith("/term/")) return reply.code(404).type("text/html").sendFile("404.html");
       return reply.code(404).send({ error: "Not found" });
     });
   } else {

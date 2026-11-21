@@ -20,6 +20,7 @@
     "@fastify/websocket": "11.3.7",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.8",
+    "node-pty": "1.1.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -27,5 +28,8 @@
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",
     "vitest": "^5.1.1"
+  },
+  "allowScripts": {
+    "node-pty@1.1.0": true
   }
 }

@@ -2,6 +2,7 @@
 // director and office as the real thing. Buttons work too: Allow/Deny, answers, messages, start/stop.
 
 import type { Activity, Agent, LiveFrame, LiveState, Message, Need, Project, Task } from "../../shared/types";
+import type { TermEvents, TermKind, TermLink } from "./term/link";
 
 type Emit = (f: LiveFrame) => void;
 
@@ -72,6 +73,82 @@ export class DemoStory {
     l.push(line);
     if (l.length > 30) l.shift();
     this.screens.set(sign, l);
+    for (const fn of this.watchers.get(sign) ?? []) fn(line);
+  }
+
+  private watchers = new Map<string, Set<(line: string) => void>>();
+
+  /** A fake live terminal: the story's lines in Claude Code colours, plus a toy shell. */
+  openTerminal(kind: TermKind, agentId: string, ev: TermEvents): TermLink {
+    const a = this.agents.get(agentId);
+    const sign = a?.sign ?? "";
+    const tick = (line: string) => `\x1b[38;2;47;174;122m●\x1b[0m ${line}\r\n`;
+    let typed = "";
+    let closed = false;
+    const prompt = kind === "agent" ? "\x1b[1m>\x1b[0m " : `\x1b[1;32m${sign}@workforce\x1b[0m:\x1b[1;34m~/demo-repo\x1b[0m$ `;
+    const redraw = () => ev.output(`\r\x1b[2K${prompt}${typed}`);
+    const later = (fn: () => void, ms: number) => setTimeout(() => !closed && fn(), ms);
+    later(() => {
+      ev.notice("ready", "");
+      if (kind === "agent") {
+        ev.output(`\x1b[38;2;217;119;87m✻\x1b[0m \x1b[1mClaude Code\x1b[0m \x1b[2m(demo: nothing real runs)\x1b[0m\r\n\x1b[2m  cwd: ~/.workforce/projects/demo-repo/${sign}\x1b[0m\r\n\r\n`);
+        for (const l of this.screens.get(sign) ?? []) ev.output(tick(l));
+        ev.output("\r\n");
+      } else ev.output(`\x1b[2mDemo shell in ${a?.name ?? "the agent"}'s folder. Try: git status, ls\x1b[0m\r\n`);
+      redraw();
+    }, 250);
+    const onLine = (line: string) => {
+      ev.output(`\r\x1b[2K${tick(line)}`);
+      redraw();
+    };
+    if (kind === "agent") {
+      if (!this.watchers.has(sign)) this.watchers.set(sign, new Set());
+      this.watchers.get(sign)!.add(onLine);
+    }
+    const run = (cmd: string) => {
+      const c = cmd.trim();
+      if (kind === "agent") {
+        if (c) ev.output(`\x1b[2m  (demo) ${a?.name ?? "The agent"} would read: ${c}\x1b[0m\r\n`);
+        return;
+      }
+      if (c === "git status")
+        ev.output(`On branch \x1b[36mwf-1-health-page\x1b[0m\r\nChanges not staged for commit:\r\n\t\x1b[31mmodified:   src/app.ts\x1b[0m\r\nUntracked files:\r\n\t\x1b[31msrc/health.ts\x1b[0m\r\n`);
+      else if (c === "ls") ev.output(`README.md  \x1b[1;34msrc\x1b[0m  package.json  tsconfig.json\r\n`);
+      else if (c) ev.output(`\x1b[2mdemo: "${c}" is not run in the demo\x1b[0m\r\n`);
+    };
+    return {
+      keys: (data) => {
+        for (const ch of data) {
+          if (ch === "\r") {
+            ev.output("\r\n");
+            run(typed);
+            typed = "";
+            ev.output(prompt);
+          } else if (ch === "\x7f") {
+            if (typed) (typed = typed.slice(0, -1)), ev.output("\b \b");
+          } else if (ch === "\x03") {
+            typed = "";
+            ev.output("^C\r\n" + prompt);
+          } else if (ch === "\x1b") {
+            if (kind === "agent" && data === "\x1b") ev.output(`\r\x1b[2K\x1b[2m  (demo) Esc pressed\x1b[0m\r\n${prompt}${typed}`);
+            break; // arrow keys etc.: nothing to do in the demo
+          } else if (ch >= " ") {
+            typed += ch;
+            ev.output(ch);
+          }
+        }
+      },
+      size: () => {},
+      renew: () => {
+        typed = "";
+        ev.output("\x1b[H\x1b[2J\x1b[3J");
+        redraw();
+      },
+      close: () => {
+        closed = true;
+        this.watchers.get(sign)?.delete(onLine);
+      },
+    };
   }
 
   private act(sign: string | null, text: string) {

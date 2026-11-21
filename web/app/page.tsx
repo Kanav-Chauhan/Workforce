@@ -7,6 +7,7 @@ import { Projects } from "../components/Projects";
 import { ProjectScreen } from "../components/ProjectScreen";
 import { setDemoApi } from "../lib/api";
 import { DemoStory } from "../lib/demo";
+import { setDemoTerminals } from "../lib/term/link";
 import { connectLive, store } from "../lib/live";
 
 interface Route {
@@ -32,11 +33,13 @@ export default function Home() {
     if (r.demo) {
       const story = new DemoStory((f) => store.apply(f), Number(new URLSearchParams(location.search).get("workers") ?? 2));
       setDemoApi((m, p, b) => story.handle(m, p, b));
+      setDemoTerminals((kind, id, ev) => story.openTerminal(kind, id, ev));
       store.setConnected(true);
       story.start();
       stop = () => {
         story.stop();
         setDemoApi(null);
+        setDemoTerminals(null);
       };
     } else stop = connectLive();
     return () => {
