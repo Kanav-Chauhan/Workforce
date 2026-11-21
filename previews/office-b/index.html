@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Workforce Office</title>
+<style>
+:root{
+  --bg:#f5f3ef; --panel:#ffffff; --line:#e6e2db; --ink:#2b2f3a; --muted:#7a7f8c; --soft:#f1eee9;
+  --accent:#4f6bed; --accent-soft:#e9edff; --ok:#2fae7a; --warn:#e8a23a; --idle:#b4b8c2;
+  --shadow:0 1px 2px rgba(40,35,25,.06),0 6px 20px rgba(40,35,25,.07);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);overflow:hidden}
+button,input{font:inherit}
+.app{display:grid;grid-template-rows:auto 1fr;grid-template-columns:minmax(0,1fr);height:100dvh;width:100%}
+header{display:flex;align-items:center;gap:12px;min-width:0;padding:10px 16px;background:rgba(255,255,255,.85);border-bottom:1px solid var(--line);backdrop-filter:blur(8px);z-index:5}
+.brand{display:flex;align-items:center;gap:8px;font-weight:650;letter-spacing:-.01em;white-space:nowrap}
+.brand i{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#6d84ff,#4f6bed);box-shadow:0 2px 6px rgba(79,107,237,.35)}
+.brand span{color:var(--muted);font-weight:500}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;background:var(--soft);font-size:12.5px;color:#4a4f5c;white-space:nowrap}
+.chip b{width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.chip.need b{background:var(--warn)}
+.chip.need.on{background:#fff3df;color:#8a5a10}
+.spacer{flex:1}
+.btn{border:1px solid var(--line);background:#fff;border-radius:9px;padding:6px 12px;font-size:13px;color:var(--ink);cursor:pointer;transition:background .15s}
+.btn:hover{background:var(--soft)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:#4360e0}
+main{display:grid;grid-template-columns:1fr 340px;min-height:0}
+.stage{position:relative;min-height:0;overflow:hidden;touch-action:none;cursor:grab}
+.stage.drag{cursor:grabbing}
+#office{width:100%;height:100%;display:block;user-select:none;-webkit-user-select:none}
+.zoom{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;background:#fff;border-radius:10px;box-shadow:var(--shadow);overflow:hidden}
+.zoom button{border:0;background:none;width:34px;height:32px;font-size:17px;color:#4a4f5c;cursor:pointer}
+.zoom button+button{border-top:1px solid var(--line)}
+.zoom button:hover{background:var(--soft)}
+.hint{position:absolute;left:14px;bottom:14px;font-size:12px;color:var(--muted);background:rgba(255,255,255,.8);padding:5px 9px;border-radius:8px}
+/* needs-you strip */
+.needs{position:absolute;left:50%;top:12px;transform:translate(-50%,-160%);opacity:0;visibility:hidden;transition:transform .45s cubic-bezier(.2,.9,.3,1.15),opacity .3s,visibility .45s;display:flex;align-items:center;gap:12px;background:#fff;border-radius:14px;padding:10px 12px 10px 14px;box-shadow:0 10px 30px rgba(60,45,20,.16);border:1px solid #f2dfbf;max-width:calc(100% - 24px);z-index:3}
+.needs.show{transform:translate(-50%,0);opacity:1;visibility:visible}
+.needs .dot{width:10px;height:10px;border-radius:50%;background:var(--warn);box-shadow:0 0 0 4px #fff1d9;flex:none;animation:pulse 1.4s infinite}
+.needs .txt{font-size:13.5px;line-height:1.35}
+.needs .txt small{display:block;color:var(--muted);font-size:11.5px}
+.needs code{background:#f4f1ec;border-radius:5px;padding:1px 5px;font-size:12.5px}
+.needs .acts{display:flex;gap:6px;flex:none}
+.needs .bar{position:absolute;left:14px;right:14px;bottom:4px;height:2px;border-radius:2px;background:#f4ead9;overflow:hidden}
+.needs .bar i{display:block;height:100%;background:var(--warn);width:100%}
+@keyframes pulse{50%{box-shadow:0 0 0 7px #fff6e8}}
+/* side column */
+aside{display:flex;flex-direction:column;border-left:1px solid var(--line);background:#fbfaf8;min-height:0}
+.tabs{display:none}
+.card{background:var(--panel);border-radius:14px;box-shadow:var(--shadow);margin:12px 12px 0;padding:14px}
+.who{display:none}
+.who.on{display:block;animation:rise .25s ease}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}}
+.who .top{display:flex;align-items:center;gap:10px}
+.who .av{width:36px;height:36px;border-radius:12px;display:grid;place-items:center;color:#fff;font-weight:700}
+.who h3{margin:0;font-size:15px}
+.who .role{font-size:12px;color:var(--muted)}
+.who .x{margin-left:auto;border:0;background:none;font-size:18px;color:var(--muted);cursor:pointer}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;font-size:12.5px;margin:12px 0 8px}
+.kv dt{color:var(--muted)} .kv dd{margin:0}
+.pill{display:inline-flex;align-items:center;gap:5px}
+.pill b{width:7px;height:7px;border-radius:50%}
+.who ul{margin:4px 0 10px;padding-left:16px;font-size:12.5px;color:#4a4f5c}
+.who li{margin:2px 0}
+.term{background:#1e2433;color:#cfd6e6;border-radius:9px;padding:9px 10px;font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;min-height:84px;white-space:pre-wrap;word-break:break-all}
+.term .ok{color:#7fe0b0}
+.lbl{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:2px 0 6px}
+.feed{flex:1;min-height:0;display:flex;flex-direction:column;margin:12px 12px 0;padding:12px 14px}
+.feed ol{list-style:none;margin:0;padding:0;overflow:auto;flex:1;min-height:0}
+.feed li{display:flex;gap:10px;font-size:12.5px;padding:6px 0;border-bottom:1px solid #f2efea;animation:rise .3s ease}
+.feed time{color:var(--muted);font-variant-numeric:tabular-nums;flex:none;width:56px;font-size:11.5px;padding-top:1px}
+.msg{margin:12px;display:flex;gap:6px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px 6px 6px 12px;box-shadow:var(--shadow)}
+.msg input{flex:1;border:0;outline:0;background:none;font-size:13.5px;min-width:0}
+/* phone */
+@media (max-width:760px){
+  header{padding:8px 12px;gap:8px}
+  .brand span,.hint,#replay .long{display:none}
+  .chip{font-size:11.5px;padding:3px 8px}
+  .chips{flex-wrap:nowrap}
+  .brand{font-size:15px}
+  main{grid-template-columns:minmax(0,1fr);grid-template-rows:1fr auto}
+  aside{border-left:0;border-top:1px solid var(--line);height:36dvh;border-radius:16px 16px 0 0;box-shadow:0 -6px 24px rgba(40,35,25,.08);transition:height .3s ease}
+  aside.min{height:112px}
+  .tabs{display:flex;gap:4px;padding:8px 12px 0;align-items:center}
+  .tabs button{border:0;background:none;padding:6px 10px;border-radius:8px;font-size:13px;color:var(--muted);cursor:pointer}
+  .tabs button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+  .tabs .grip{margin-left:auto}
+  aside[data-tab=activity] .who{display:none}
+  aside[data-tab=details] .feed{display:none}
+  .card{margin:8px 12px 0}
+  .feed{padding:8px 12px}
+  .msg{margin:8px 12px 12px}
+  .needs{top:8px;left:8px;right:8px;max-width:none;transform:translateY(-160%);gap:8px;padding:8px 10px}
+  .needs.show{transform:translateY(0)}
+  .needs .txt{font-size:12.5px;flex:1;min-width:0} .needs .txt small{font-size:11px}
+  .needs .btn{padding:5px 9px;font-size:12.5px}
+}
+@media (max-width:420px){
+  .brand{font-size:0;gap:0}
+  .needs .txt small{display:none}
+  .zoom{bottom:10px;right:10px}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><i></i>Workforce <span>· demo-repo</span></div>
+    <div class="chips"><span class="chip" id="chipWork"><b></b>0 working</span><span class="chip need" id="chipNeed"><b></b>0 needs you</span></div>
+    <div class="spacer"></div>
+    <button class="btn" id="replay">↻ <span class="long">Replay story</span></button>
+  </header>
+  <main>
+    <div class="stage" id="stage">
+      <svg id="office" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The Workforce office"></svg>
+      <div class="needs" id="needs" role="alert">
+        <span class="dot"></span>
+        <div class="txt" id="needsTxt"></div>
+        <div class="acts"><button class="btn" id="deny">Deny</button><button class="btn primary" id="allow">Allow</button></div>
+        <div class="bar"><i id="needsBar"></i></div>
+      </div>
+      <div class="zoom"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zfit" aria-label="Fit office">⤢</button></div>
+      <div class="hint">Drag to move · scroll to zoom · click anyone</div>
+    </div>
+    <aside id="side" data-tab="activity">
+      <div class="tabs"><button data-t="activity" class="on">Activity</button><button data-t="details">Details</button><button class="grip" id="grip" aria-label="Collapse panel">▾</button></div>
+      <section class="card who" id="who"></section>
+      <section class="card feed"><div class="lbl">Activity</div><ol id="feed"></ol></section>
+      <form class="msg" id="msgForm"><input id="msgIn" placeholder="Message the lead…" autocomplete="off"><button class="btn primary">Send</button></form>
+    </aside>
+  </main>
+</div>
+<script src="office.js"></script>
+</body>
+</html>
