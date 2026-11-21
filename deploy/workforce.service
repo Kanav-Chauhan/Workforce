@@ -1,0 +1,21 @@
+# Workforce as a system service (runs as the owner's user, so agents use their claude/gh logins).
+# Install: sudo cp deploy/workforce.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now workforce
+[Unit]
+Description=Workforce (Claude Code agent team dashboard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=north
+WorkingDirectory=/home/north/Projects/workforce
+Environment=HOME=/home/north
+Environment=PATH=/home/north/.nvm/versions/node/v24.22.1/bin:/home/north/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=WORKFORCE_PORT=3010
+ExecStart=/home/north/Projects/workforce/node_modules/.bin/tsx server/main.ts
+Restart=on-failure
+RestartSec=5
+# Only stop the server on restart; the agents' tmux sessions keep running.
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

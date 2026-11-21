@@ -194,8 +194,9 @@ export class PrSync {
     const tasks = db.tasks(project.id);
     // Once linked, a PR stays with its task even if the title changes.
     const task = (prev?.taskId ? tasks.find((t) => t.id === prev.taskId) : undefined) ?? matchTask(snap, project.prefix, tasks);
-    // Unlinked PRs we've never seen and that are already closed are noise.
-    if (!task && !prev && snap.state !== "open") return;
+    // Unlinked PRs we've never seen and that are already closed are noise. So is a PR that was
+    // closed before its task existed: an old PR reusing the same id (e.g. a reinstall restarted at WS-1).
+    if (!prev && snap.state !== "open" && (!task || snap.updatedAt < task.createdAt)) return;
     const authorId = task?.ownerId ?? prev?.authorId ?? null;
     const row: PrRow = {
       projectId: project.id, number: snap.number, taskId: task?.id ?? null, authorId, title: snap.title, url: snap.url, state: snap.state, draft: snap.draft,

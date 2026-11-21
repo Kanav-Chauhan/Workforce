@@ -2,7 +2,7 @@
 
 ## ▶ RESUME HERE
 
-**LIVE STATUS (2026-11-21, late):** **Phase 3 (GitHub loop) built and passed its end-to-end test**, waiting for owner OK. One `gh api graphql` query per project every 30 s (sooner after a turn ends) → PRs linked to tasks by `[ID]` title → Review; new review comments / failed checks / conflicts go once to the author (task → Working until the push lands); ready → "Merge" in Needs you (Merge button = `gh pr merge`, project's method, branch deleted); merged → Done + lead told + confetti; closed → To do + lead told. PR drawer (top bar "PRs", or click a parcel), Settings → Workflow (reviewer none/you/CodeRabbit/Greptile/Copilot/command, who merges, merge method, deploy step per agent), sync status in Debug, demo PR story. 86 tests, typecheck clean. Next: owner check, then Phase 4 (online at p7).
+**LIVE STATUS (2026-11-21, evening): Phase 4 DONE — Workforce is LIVE at https://p7.kanav.space (p5 login, user kanav).** systemd service `workforce` (deploy/workforce.service → /etc/systemd/system, User=north, KillMode=process so agents survive restarts, port 3010, data ~/.workforce). Caddy p7 → 127.0.0.1:3010 (the old static demo container ~/deploy/workforce-preview is stopped; demo is now `/?demo=1` of the real app). Office name "Kanav HQ". Project workforce-sandbox added (Trusted, stack Next.js/React/Tailwind/Node), Leo + Aries + Virgo started and ready (trust prompts allowed). Owner is about to test: type "build a to-do app" to Leo. Update the app: `git pull && npm run build:web && sudo systemctl restart workforce`. Logs: `sudo journalctl -u workforce -f`.
 
 - Session: `701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`, transcript `~/.claude/projects/-home-north/701b5a1a-8ee7-4692-9a98-0c2c50ed80b8.jsonl`
 - Resume: `cd ~ && claude --resume 701b5a1a-8ee7-4692-9a98-0c2c50ed80b8`
@@ -20,7 +20,7 @@
 | 2a | Office look: 2 previews at p7, owner picks | done: B (2D) |
 | 2b | Dashboard: office (§5b) + all screens + JSM HQ extras | done (owner check) |
 | 3 | GitHub loop: PRs ↔ tasks, review comments to author, merged = done | done (owner check) |
-| 4 | Online at p7 behind a password | todo |
+| 4 | Online at p7 behind a password | done |
 
 ## Rules
 
@@ -48,3 +48,4 @@
 - 2026-11-21: Phase 3. Server: github.ts (GraphQL query + parser, gh port), prSync.ts (scheduler with back-off and rate budget, PR ↔ task matching, feedback dedupe in `pr_seen`, ready check, merge), db `prs`/`pr_seen` tables + `projects.workflow` + `tasks.deploy_result`, `pr` live event, routes (`/api/projects/:id/prs`, `…/prs/:n/merge`, `…/sync`), MCP `merge_pr` (lead, only if "lead may merge"), `report.deploy`, role rules ([ID] title, same branch, `[Name]` prefix on GitHub comments, never merge). Web: Prs.tsx (drawer, cards, Merge button), Merge row in Needs you, Settings → Workflow, Debug sync, office acts `rework` (author fetches the parcel) and `approve` (parcel passes the gate with a tick), parcel click → drawer, demo PR story (CodeRabbit asks for a change on PR #5).
 - 2026-11-21 E2E on Kanav-Chauhan/workforce-sandbox (scratch WORKFORCE_HOME, port 3016, Leo + Aries on sonnet, Trusted): message → Leo created WS-1 + assigned → Aries branched, pushed, opened `[WS-1] Add CONTRIBUTING.md` (PR #1) → Review → my `gh pr review --comment` reached Aries in ~10 s → Aries pushed a fix and replied `[Aries] Fixed…` (not sent back) → ready → Merge clicked in headless Chromium → squash-merged, branch deleted, WS-1 Done, Leo + Aries told, confetti. https://github.com/Kanav-Chauhan/workforce-sandbox/pull/1 . ~1.5 min total. Agents + server stopped; sandbox has only `main`. Found: Leo didn't know the owner asked for the change and told Aries to undo it (Aries refused correctly) → the lead is now told about review feedback too. Shots: web/shots/pr-panel, merge-need, workflow, office-review, office-merged, office-rework (+ -phone), live-merge-need, live-merged, live-pr-panel.
 - Gaps (3): owner can't "approve" own PRs on GitHub (same login as agents), so "you" as reviewer means: a PR is ready once checks pass and nothing is waiting on the author; review bots and the custom command were tested with fakes only (no bot installed on the sandbox); the deploy step is an instruction + recorded result, no infra; workflow changes need an agent restart.
+- 2026-11-21 (coordinator): Phase 4: README, MIT LICENSE (Kanav Chauhan), systemd unit, Caddy p7 → app. Fixed: an old merged PR with the same [ID] (WS-1 from the Phase 3 test) would have marked a new task Done; closed PRs older than their task are now ignored (+ test, 87 pass).

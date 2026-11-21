@@ -127,6 +127,14 @@ describe("feedback dedupe and readiness", () => {
 });
 
 describe("the GitHub loop", () => {
+  it("ignores an old merged PR that reuses a new task's id", async () => {
+    const { db, gh, sync, task } = setup();
+    gh.repo.prs = [snap({ state: "merged", updatedAt: "2020-01-01T00:00:00.000Z" })];
+    await sync.syncNow("demo");
+    expect(db.task(task.id)!.status).toBe("working");
+    expect(db.task(task.id)!.prNumber).toBeNull();
+  });
+
   it("links a PR, sends new review comments once, waits for the push, then offers the merge", async () => {
     const { db, gh, sync, task, inbox } = setup();
     gh.repo.prs = [snap()];
